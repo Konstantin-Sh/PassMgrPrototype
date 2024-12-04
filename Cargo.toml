@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "storage",
+    "server",
+    "cli-client",
+]
+
