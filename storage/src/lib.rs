@@ -1,3 +1,4 @@
+pub mod db;
 pub mod structures;
 
 pub fn add(left: usize, right: usize) -> usize {
