@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 sled = "0.34.7"
 directories = "5.0.1"
+thiserror.workspace = true

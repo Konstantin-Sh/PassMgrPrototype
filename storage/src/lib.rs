@@ -1,6 +1,9 @@
 pub mod db;
 pub mod structures;
 
+pub mod error;
+pub use error::*;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
