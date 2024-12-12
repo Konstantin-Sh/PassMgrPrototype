@@ -21,7 +21,9 @@ impl Storage {
         let ivec = IVec::from(payload);
         //let ivec = IVec::from(payload.into_iter().flat_map(|s| s.as_bytes()).collect::<Vec<u8>>());
 
-        self.tree.insert(key, ivec).unwrap();
+        self.tree
+            .insert(key, ivec)
+            .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
