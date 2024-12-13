@@ -30,7 +30,11 @@ impl Storage {
 
     pub fn get(&self, key: &str) -> Result<(), StorageError> {
         return Ok(());
-        let some_value = self.tree.get(key).unwrap().unwrap();
+        let some_value = self
+            .tree
+            .get(key)
+            .map_err(|e| StorageError::StorageReadError(e.to_string()))?
+            .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
     }
 }
 
