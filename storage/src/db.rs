@@ -1,5 +1,7 @@
+use bincode::{deserialize, serialize};
 use directories::ProjectDirs;
 use sled::{Config, Db, IVec};
+use serde::de::Deserialize;
 
 use crate::StorageError;
 
@@ -18,23 +20,23 @@ impl Storage {
         Ok(Self { tree: db })
     }
     fn set(&self, key: &str, payload: &str) -> Result<(), StorageError> {
-        let ivec = IVec::from(payload);
+        //let ivec = IVec::from(payload);
         //let ivec = IVec::from(payload.into_iter().flat_map(|s| s.as_bytes()).collect::<Vec<u8>>());
 
         self.tree
-            .insert(key, ivec)
+            .insert(key, serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Result<(), StorageError> {
-        return Ok(());
+    pub fn get<ST: serde::de::Deserialize<'_>>(&self, key: &str) -> Result<ST, StorageError> {
         let some_value = self
             .tree
             .get(key)
             .map_err(|e| StorageError::StorageReadError(e.to_string()))?
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
+        bincode::deserialize(&some_value).unwrap()
     }
 }
 

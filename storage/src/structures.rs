@@ -73,7 +73,7 @@ pub struct DataBase {
 pub struct CipherRecord {
     ver: u64,
     cipher_options: Vec<u8>,
-    data: [u8; 90000000],
+    data: Vec<u8>,
 }
 
 pub struct CipherDataBase {
