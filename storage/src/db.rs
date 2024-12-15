@@ -1,9 +1,9 @@
 use bincode::{deserialize, serialize};
 use directories::ProjectDirs;
 use sled::{Config, Db, IVec};
-use serde::de::Deserialize;
 
 use crate::StorageError;
+use crate::structures::CipherRecord;
 
 pub struct Storage {
     tree: Db,
@@ -19,7 +19,7 @@ impl Storage {
             .map_err(|e| StorageError::StorageOpenError(e))?;
         Ok(Self { tree: db })
     }
-    fn set(&self, key: &str, payload: &str) -> Result<(), StorageError> {
+    fn set(&self, key: &str, payload: &CipherRecord) -> Result<(), StorageError> {
         //let ivec = IVec::from(payload);
         //let ivec = IVec::from(payload.into_iter().flat_map(|s| s.as_bytes()).collect::<Vec<u8>>());
 
@@ -30,13 +30,13 @@ impl Storage {
         Ok(())
     }
 
-    pub fn get<ST: serde::de::Deserialize<'_>>(&self, key: &str) -> Result<ST, StorageError> {
+    pub fn get(&self, key: &str) -> Result<CipherRecord, StorageError> {
         let some_value = self
             .tree
             .get(key)
             .map_err(|e| StorageError::StorageReadError(e.to_string()))?
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
-        bincode::deserialize(&some_value).unwrap()
+        Ok(deserialize(&some_value).unwrap())
     }
 }
 

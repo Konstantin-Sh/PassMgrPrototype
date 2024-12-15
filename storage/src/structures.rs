@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 // Represents a single field in a record (like username, password, etc.)
 pub struct ItemOld {
     pub title: String, // Label for the field
@@ -70,11 +72,15 @@ pub struct DataBase {
     records: Vec<Record>,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct CipherRecord {
-    ver: u64,
-    cipher_options: Vec<u8>,
-    data: Vec<u8>,
+    pub user_id: u64,
+    pub cipher_record_id: u64,
+    pub ver: u64, // TODO research
+    pub cipher_options: Vec<u8>,
+    pub data: Vec<u8>,
 }
+// TODO Add index cipher_record_id -> record_id + ver
 
 pub struct CipherDataBase {
     version: u64,
