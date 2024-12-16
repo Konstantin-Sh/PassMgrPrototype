@@ -3,9 +3,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum StorageError {
     //    StoragePathError,
+    // #[from] sled::Error
     // TODO Rename it
     #[error("Storage open error: {0}")]
-    StorageOpenError(#[from] sled::Error),
+    StorageOpenError(String),
     #[error("Key not found: {0}")]
     StorageDataNotFound(String),
     #[error("Storage set error: {0}")]

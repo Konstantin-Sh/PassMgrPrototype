@@ -2,8 +2,8 @@ use bincode::{deserialize, serialize};
 use directories::ProjectDirs;
 use sled::{Config, Db, IVec};
 
-use crate::StorageError;
 use crate::structures::CipherRecord;
+use crate::StorageError;
 
 pub struct Storage {
     tree: Db,
@@ -16,7 +16,7 @@ impl Storage {
 
         let db = config
             .open()
-            .map_err(|e| StorageError::StorageOpenError(e))?;
+            .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
         Ok(Self { tree: db })
     }
     fn set(&self, key: &str, payload: &CipherRecord) -> Result<(), StorageError> {
@@ -50,9 +50,15 @@ mod storage_tests {
 
         //        let db = Storage::new("com.test_write", "WriteTest Corp", "WriteTest App").unwrap();
         let db = Storage::new().unwrap();
-        let payload = "test1";
+        let payload = CipherRecord {
+            user_id: 1,
+            cipher_record_id: 1,
+            ver: 1,
+            cipher_options: [0].to_vec(),
+            data: [0, 42, 0, 42].to_vec(),
+        };
 
-        db.set(KEY, payload).unwrap();
+        db.set(KEY, &payload).unwrap();
 
         let out = db.get(KEY).unwrap();
 
