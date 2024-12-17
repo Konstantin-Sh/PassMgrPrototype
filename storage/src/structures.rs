@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // Represents a single field in a record (like username, password, etc.)
+/*
 pub struct ItemOld {
     pub title: String, // Label for the field
     pub value: String, // The actual value stored
@@ -8,8 +9,10 @@ pub struct ItemOld {
     pub copy: bool,    // Whether the field can be copied to clipboard
     pub reload: bool,  // Whether the field can be regenerated/reloaded
 }
+*/
 
 // Base structure for all record types
+/*
 pub struct Element {
     pub icon: String,            // Icon URL/identifier
     pub created: i64,            // Creation timestamp
@@ -20,6 +23,7 @@ pub struct Element {
     pub fields: Vec<Item>,       // Primary fields
     pub extra_fields: Vec<Item>, // Additional custom fields
 }
+*/
 
 // Different types of records that can be stored
 /*

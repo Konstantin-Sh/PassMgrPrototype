@@ -3,7 +3,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum StorageError {
     //    StoragePathError,
-    // #[from] sled::Error
     // TODO Rename it
     #[error("Storage open error: {0}")]
     StorageOpenError(String),
@@ -16,10 +15,3 @@ pub enum StorageError {
     // other variants
 }
 
-/*
-impl std::fmt::Display for StorageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-*/
