@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 pub enum Atributes {
     Hide,
     Copy,

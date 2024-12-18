@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "ciphers",
     "storage",
     "server",
     "passmgr-cli",

@@ -14,4 +14,3 @@ pub enum StorageError {
     StorageReadError(String),
     // other variants
 }
-

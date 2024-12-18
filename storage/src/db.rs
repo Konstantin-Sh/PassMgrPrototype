@@ -20,7 +20,6 @@ impl Storage {
         Ok(Self { tree: db })
     }
     fn set(&self, key: &str, payload: &CipherRecord) -> Result<(), StorageError> {
-
         self.tree
             .insert(key, serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
