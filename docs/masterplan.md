@@ -66,6 +66,28 @@ A secure, distributed password manager written in Rust, featuring multi-algorith
 - Networking: P2P protocol implementation
 - GUI Framework: Linux-native with ShadCN design principles
 
+### User Interface Design
+- Main Window:
+  - Hierarchical tree view for password organization
+  - Multi-column list view (Title, Username, URL, Notes, Modified date)
+  - Comprehensive toolbar for common actions
+  - Integrated search with advanced filtering
+  - System tray integration
+
+- Entry Management:
+  - Tab-based entry editor (General, Advanced, Properties)
+  - Clear form layout for credentials
+  - Visual password strength indicators
+  - Tag-based organization system
+  - Expiration date management
+  - Rich text notes support
+
+- Database Access:
+  - Clean, focused unlock screen
+  - Multiple authentication method support
+  - Clear database location display
+  - Hardware key integration options
+
 ### Security Components
 - Cryptographic libraries for multiple encryption algorithms
 - Key generation and management system
