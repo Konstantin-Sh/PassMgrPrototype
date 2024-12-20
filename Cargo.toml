@@ -4,6 +4,7 @@ members = [
     "storage",
     "server",
     "passmgr-cli",
+    "passmgr-gui",
 ]
 resolver = "2"
 
