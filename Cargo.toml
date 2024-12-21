@@ -3,6 +3,7 @@ members = [
     "ciphers",
     "storage",
     "server",
+    "network",
     "passmgr-cli",
     "passmgr-gui",
 ]
