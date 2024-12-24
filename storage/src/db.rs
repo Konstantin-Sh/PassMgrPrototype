@@ -1,6 +1,6 @@
 use bincode::{deserialize, serialize};
 use directories::ProjectDirs;
-use sled::{Config, Db, IVec};
+use sled::{Config, Db};
 
 use crate::structures::CipherRecord;
 use crate::StorageError;
@@ -35,6 +35,12 @@ impl Storage {
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
         Ok(deserialize(&some_value).unwrap())
     }
+    pub fn remove(&self, key: &str) -> Result<(), StorageError> {
+        self.tree
+            .remove(key)
+            .map_err(|e| StorageError::StorageReadError(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -59,5 +65,21 @@ mod storage_tests {
         let out = db.get(KEY).unwrap();
 
         assert_eq!(out, payload);
+    }
+    #[test]
+    fn test_remove() {
+        const KEY: &str = "TEST_KEY_FOR_STORAGE1";
+        let db = Storage::new().unwrap();
+        let payload = CipherRecord {
+            user_id: 1,
+            cipher_record_id: 1,
+            ver: 1,
+            cipher_options: [0].to_vec(),
+            data: [0, 42, 0, 42].to_vec(),
+        };
+        db.set(KEY, &payload).unwrap();
+        db.remove(KEY).unwrap();
+        let out = db.get(KEY);
+        assert_eq!(out, Result<StorageError::StorageDataNotFound()>);
     }
 }
