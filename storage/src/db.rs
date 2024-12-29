@@ -80,6 +80,6 @@ mod storage_tests {
         db.set(KEY, &payload).unwrap();
         db.remove(KEY).unwrap();
         let out = db.get(KEY);
-        assert_eq!(out, Result<StorageError::StorageDataNotFound()>);
+        assert_eq!(out, Error::StorageError::StorageDataNotFound());
     }
 }

@@ -1,9 +1,10 @@
 pub enum CipherOption {
     AES256,
-    GOST,
+    XChaCha20,
     GRASSHOPPER,
     NTRUP1277,
     TWOFISH,
+    Kyber1024,
     // TODO Add quantum-resistant ciphers
     // TODO Research terminal symbol
     END, // Terminal symbol
@@ -14,10 +15,11 @@ impl CipherOption {
         match self {
             Self::END => 0,
             Self::AES256 => 1,
-            Self::GOST => 3,
+            Self::XChaCha20 => 3,
             Self::GRASSHOPPER => 4,
             Self::NTRUP1277 => 5,
             Self::TWOFISH => 6,
+            Self::Kyber1024 => 7,
         }
     }
 }
