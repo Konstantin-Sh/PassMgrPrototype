@@ -1,6 +1,6 @@
-// ciphers/src/bip39.rs
-use rand::{RngCore, rngs::OsRng};
-use sha2::{Sha256, Digest};
+use hmac::Hmac;
+use rand::{rngs::OsRng, RngCore};
+use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,13 +40,16 @@ impl Bip39 {
 
     pub fn from_mnemonic(mnemonic: &str) -> Result<Self, Bip39Error> {
         let words: Vec<String> = mnemonic.split_whitespace().map(String::from).collect();
-        
+
         if !Self::verify_mnemonic(&words) {
             return Err(Bip39Error::InvalidMnemonic);
         }
 
         let entropy = Self::mnemonic_to_entropy(&words)?;
-        Ok(Self { entropy, mnemonic: words })
+        Ok(Self {
+            entropy,
+            mnemonic: words,
+        })
     }
 
     pub fn get_mnemonic(&self) -> String {
@@ -56,29 +59,35 @@ impl Bip39 {
     pub fn get_seed(&self, passphrase: &str) -> Vec<u8> {
         let mnemonic = self.get_mnemonic();
         let salt = format!("mnemonic{}", passphrase);
-        
+
         let mut seed = [0u8; 64];
-        pbkdf2::pbkdf2::<Hmac<Sha512>>(
-            mnemonic.as_bytes(),
-            salt.as_bytes(),
-            2048,
-            &mut seed,
-        );
-        
+        pbkdf2::pbkdf2::<Hmac<Sha512>>(mnemonic.as_bytes(), salt.as_bytes(), 2048, &mut seed);
+
         seed.to_vec()
     }
 
     fn entropy_to_mnemonic(entropy: &[u8]) -> Result<Vec<String>, Bip39Error> {
         let checksum = Self::generate_checksum(entropy);
-        let combined = Self::combine_entropy_and_checksum(entropy, checksum);
-        
+
+        // Convert entropy to bits
+        let mut bits = String::new();
+        for &byte in entropy {
+            bits.push_str(&format!("{:08b}", byte));
+        }
+
+        // Add checksum bits
+        let checksum_bits = entropy.len() / 4;
+        bits.push_str(&format!("{:08b}", checksum)[..checksum_bits]);
+
         let wordlist = include_str!("wordlist/english.txt")
             .lines()
             .collect::<Vec<&str>>();
 
         let mut words = Vec::new();
-        for i in (0..combined.len()).step_by(11) {
-            let idx = Self::extract_11_bits(&combined, i);
+        // Process bits in chunks of 11 bits
+        for i in (0..bits.len()).step_by(11) {
+            let chunk = &bits[i..i + 11];
+            let idx = usize::from_str_radix(chunk, 2).map_err(|_| Bip39Error::InvalidMnemonic)?;
             words.push(wordlist[idx].to_string());
         }
 
@@ -92,18 +101,20 @@ impl Bip39 {
 
         let mut bits = String::new();
         for word in words {
-            let idx = wordlist.iter().position(|&w| w == word)
+            let idx = wordlist
+                .iter()
+                .position(|&w| w == word)
                 .ok_or(Bip39Error::InvalidMnemonic)?;
             bits.push_str(&format!("{:011b}", idx));
         }
 
         let checksum_bits = bits.len() / 33;
         let entropy_bits = bits.len() - checksum_bits;
-        
+
         let mut entropy = Vec::new();
         for i in (0..entropy_bits).step_by(8) {
-            let byte = u8::from_str_radix(&bits[i..i + 8], 2)
-                .map_err(|_| Bip39Error::InvalidMnemonic)?;
+            let byte =
+                u8::from_str_radix(&bits[i..i + 8], 2).map_err(|_| Bip39Error::InvalidMnemonic)?;
             entropy.push(byte);
         }
 
@@ -124,8 +135,7 @@ impl Bip39 {
     fn verify_checksum(entropy: &[u8]) -> bool {
         let checksum = Self::generate_checksum(entropy);
         let expected_bits = entropy.len() * 8 / 32;
-        (checksum >> (8 - expected_bits)) == 
-            (entropy[entropy.len() - 1] >> (8 - expected_bits))
+        (checksum >> (8 - expected_bits)) == (entropy[entropy.len() - 1] >> (8 - expected_bits))
     }
 
     fn verify_mnemonic(words: &[String]) -> bool {
@@ -141,7 +151,7 @@ mod tests {
     fn test_generate_and_restore() {
         let bip39 = Bip39::new(128).unwrap();
         let mnemonic = bip39.get_mnemonic();
-        
+
         let restored = Bip39::from_mnemonic(&mnemonic).unwrap();
         assert_eq!(bip39.entropy, restored.entropy);
     }

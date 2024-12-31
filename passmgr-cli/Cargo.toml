@@ -1,6 +1,8 @@
 [package]
 name = "passmgr-cli"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 [dependencies]
+ciphers = { path = "../ciphers" }
+clap = { version = "4.4", features = ["derive"] }
