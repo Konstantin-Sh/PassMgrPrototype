@@ -1,17 +1,18 @@
+// ciphers/src/master_keys.rs
 use crate::structures::CipherOption;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
 
-type HmacSha512 = Hmac<sha512>;
+type HmacSha512 = Hmac<Sha512>;
 
 #[derive(Debug)]
 pub struct MasterKeys {
     pub aes256_key: [u8; 32],
     pub xchacha20_key: [u8; 32],
     pub grasshopper_key: [u8; 32],
+    pub ntrup1277_seed: [u8; 64], // NTRU Prime seed
     pub twofish_key: [u8; 32],
-    pub ntrup1277_seed: [u8; 64],
-    pub kyber1024_seed: [u8; 84],
+    pub kyber1024_seed: [u8; 84], // Kyber1024 requires 84 bytes for seed
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,9 +37,9 @@ impl MasterKeys {
             aes256_key: Self::derive_symmetric_key(&base_key, CipherOption::AES256)?,
             xchacha20_key: Self::derive_symmetric_key(&base_key, CipherOption::XChaCha20)?,
             grasshopper_key: Self::derive_symmetric_key(&base_key, CipherOption::GRASSHOPPER)?,
-            ntrup1277_seed: Self::derive_quantum_seed(&base_key, CipherOption::NTRUP1277)?,
+            ntrup1277_seed: Self::derive_quantum_seed::<64>(&base_key, CipherOption::NTRUP1277)?,
             twofish_key: Self::derive_symmetric_key(&base_key, CipherOption::TWOFISH)?,
-            kyber1024_seed: Self::derive_quantum_seed(&base_key, CipherOption::Kyber1024)?,
+            kyber1024_seed: Self::derive_quantum_seed::<84>(&base_key, CipherOption::Kyber1024)?,
         })
     }
 
@@ -71,19 +72,39 @@ impl MasterKeys {
         Ok(key)
     }
 
-    // Derive 64-byte seed for quantum-resistant algorithms
-    fn derive_quantum_seed(
+    // Derive N-byte seed for quantum-resistant algorithms
+    fn derive_quantum_seed<const N: usize>(
         base_key: &[u8],
         cipher: CipherOption,
-    ) -> Result<[u8; 64], KeyDerivationError> {
+    ) -> Result<[u8; N], KeyDerivationError> {
         let mut mac =
             HmacSha512::new_from_slice(base_key).map_err(|_| KeyDerivationError::HmacError)?;
 
         mac.update(&[cipher.code()]);
         mac.update(b"QUANTUM_SEED");
+        let initial = mac.finalize().into_bytes();
 
-        let mut seed = [0u8; 64];
-        seed.copy_from_slice(&mac.finalize().into_bytes());
+        // For seeds larger than 64 bytes, we need additional iterations
+        let mut seed = [0u8; N];
+        let mut offset = 0;
+
+        while offset < N {
+            let chunk_size = std::cmp::min(64, N - offset);
+            if offset == 0 {
+                seed[..chunk_size].copy_from_slice(&initial[..chunk_size]);
+            } else {
+                // Generate additional bytes using the previous chunk
+                let mut mac = HmacSha512::new_from_slice(base_key)
+                    .map_err(|_| KeyDerivationError::HmacError)?;
+                mac.update(&seed[..offset]);
+                mac.update(&[cipher.code()]);
+                mac.update(&[offset as u8]);
+                let next = mac.finalize().into_bytes();
+                seed[offset..offset + chunk_size].copy_from_slice(&next[..chunk_size]);
+            }
+            offset += chunk_size;
+        }
+
         Ok(seed)
     }
 
@@ -139,15 +160,15 @@ mod tests {
 
         let master_keys = MasterKeys::from_entropy(&entropy).unwrap();
 
-        // Verify quantum seeds are 64 bytes
+        // Verify seed lengths
         assert_eq!(master_keys.ntrup1277_seed.len(), 64);
-        assert_eq!(master_keys.kyber1024_seed.len(), 64);
+        assert_eq!(master_keys.kyber1024_seed.len(), 84);
 
         // Verify seeds are different
         assert_ne!(
-            &master_keys.ntrup1277_seed[..],
-            &master_keys.kyber1024_seed[..],
-            "Quantum seeds are identical"
+            &master_keys.ntrup1277_seed[..64],
+            &master_keys.kyber1024_seed[..64],
+            "Quantum seeds share common prefix"
         );
     }
 
