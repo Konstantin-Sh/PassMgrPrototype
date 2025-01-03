@@ -1,7 +1,7 @@
 // ciphers/src/master_keys.rs
 use crate::structures::CipherOption;
 use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha512};
 
 type HmacSha512 = Hmac<Sha512>;
 
@@ -31,7 +31,7 @@ impl MasterKeys {
         }
 
         // Derive base key material using HKDF
-        let base_key = Self::derive_base_key(entropy)?;
+        let base_key = Self::derive_base_key(entropy);
 
         Ok(Self {
             aes256_key: Self::derive_symmetric_key(&base_key, CipherOption::AES256)?,
@@ -44,14 +44,14 @@ impl MasterKeys {
     }
 
     // Derive base key material using HKDF
-    fn derive_base_key(entropy: &[u8]) -> Result<[u8; 64], KeyDerivationError> {
+    fn derive_base_key(entropy: &[u8]) -> [u8; 64] {
         let mut hasher = Sha512::new();
         hasher.update(b"PASSMGR_MASTER_KEY");
         hasher.update(entropy);
 
         let mut base_key = [0u8; 64];
         base_key.copy_from_slice(&hasher.finalize());
-        Ok(base_key)
+        base_key
     }
 
     // Derive 32-byte key for symmetric ciphers

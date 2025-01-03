@@ -58,10 +58,11 @@ impl Bip39 {
 
     pub fn get_seed(&self, passphrase: &str) -> Vec<u8> {
         let mnemonic = self.get_mnemonic();
-        let salt = format!("mnemonic{}", passphrase);
+        let salt = format!("mnemonic{passphrase}");
 
         let mut seed = [0u8; 64];
-        pbkdf2::pbkdf2::<Hmac<Sha512>>(mnemonic.as_bytes(), salt.as_bytes(), 2048, &mut seed);
+        let _ =
+            pbkdf2::pbkdf2::<Hmac<Sha512>>(mnemonic.as_bytes(), salt.as_bytes(), 2048, &mut seed);
 
         seed.to_vec()
     }
@@ -72,12 +73,12 @@ impl Bip39 {
         // Convert entropy to bits
         let mut bits = String::new();
         for &byte in entropy {
-            bits.push_str(&format!("{:08b}", byte));
+            bits.push_str(&format!("{byte:08b}"));
         }
 
         // Add checksum bits
         let checksum_bits = entropy.len() / 4;
-        bits.push_str(&format!("{:08b}", checksum)[..checksum_bits]);
+        bits.push_str(&format!("{checksum:08b}")[..checksum_bits]);
 
         let wordlist = include_str!("wordlist/english.txt")
             .lines()
@@ -105,7 +106,7 @@ impl Bip39 {
                 .iter()
                 .position(|&w| w == word)
                 .ok_or(Bip39Error::InvalidMnemonic)?;
-            bits.push_str(&format!("{:011b}", idx));
+            bits.push_str(&format!("{idx:011b}"));
         }
 
         let checksum_bits = bits.len() / 33;

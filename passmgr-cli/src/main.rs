@@ -33,16 +33,16 @@ fn main() {
 
     match cli.command {
         Commands::GenerateSeed { strength } => match generate_seed(strength) {
-            Ok(mnemonic) => println!("Generated seed phrase:\n{}", mnemonic),
-            Err(e) => eprintln!("Error generating seed phrase: {}", e),
+            Ok(mnemonic) => println!("Generated seed phrase:\n{mnemonic}"),
+            Err(e) => eprintln!("Error generating seed phrase: {e}"),
         },
         Commands::VerifySeed { mnemonic } => match verify_seed(&mnemonic) {
             Ok(()) => println!("Seed phrase is valid!"),
-            Err(e) => eprintln!("Invalid seed phrase: {}", e),
+            Err(e) => eprintln!("Invalid seed phrase: {e}"),
         },
         Commands::Interactive => {
             if let Err(e) = interactive_mode() {
-                eprintln!("Error in interactive mode: {}", e);
+                eprintln!("Error in interactive mode: {e}");
             }
         }
     }
@@ -102,8 +102,8 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 };
 
                 match generate_seed(strength) {
-                    Ok(mnemonic) => println!("\nGenerated seed phrase:\n{}", mnemonic),
-                    Err(e) => eprintln!("Error generating seed phrase: {}", e),
+                    Ok(mnemonic) => println!("\nGenerated seed phrase:\n{mnemonic}"),
+                    Err(e) => eprintln!("Error generating seed phrase: {e}"),
                 }
             }
             "2" => {
@@ -115,7 +115,7 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
 
                 match verify_seed(mnemonic.trim()) {
                     Ok(()) => println!("Seed phrase is valid!"),
-                    Err(e) => eprintln!("Invalid seed phrase: {}", e),
+                    Err(e) => eprintln!("Invalid seed phrase: {e}"),
                 }
             }
             "3" => break,
