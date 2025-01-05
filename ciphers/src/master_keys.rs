@@ -70,12 +70,11 @@ impl MasterKeys {
     }
 
     // Generate unique salt for each cipher
-    fn generate_salt(cipher: CipherOption) -> Salt<'static> {
+    fn generate_salt(cipher: CipherOption) -> [u8; 16] {
         let mut salt = [0u8; 16];
         salt[0] = cipher.code();
         salt[1..].copy_from_slice(b"PASSMGR_SALT_V1");
-
-        Salt::from_b64(&base64::encode(salt)).expect("Static salt generation should never fail")
+        salt
     }
 
     // Derive 32-byte key for symmetric ciphers
@@ -88,7 +87,7 @@ impl MasterKeys {
         let mut output = [0u8; 32];
 
         argon2
-            .hash_password_into(entropy, salt.as_ref(), &mut output)
+            .hash_password_into(entropy, &salt, &mut output)
             .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
 
         Ok(output)
@@ -101,12 +100,12 @@ impl MasterKeys {
         cipher: CipherOption,
     ) -> Result<[u8; N], KeyDerivationError> {
         let mut seed = [0u8; N];
-        let salt = Self::generate_salt(cipher);
+        let base_salt = Self::generate_salt(cipher);
 
         // For seeds larger than 32 bytes, we need multiple derivations
         for (i, chunk) in seed.chunks_mut(32).enumerate() {
             let mut temp_salt = [0u8; 20]; // 16 bytes salt + 4 bytes counter
-            temp_salt[..16].copy_from_slice(salt.as_ref());
+            temp_salt[..16].copy_from_slice(&base_salt);
             temp_salt[16..].copy_from_slice(&(i as u32).to_le_bytes());
 
             argon2
