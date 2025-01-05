@@ -1,108 +1,117 @@
-// ciphers/src/master_keys.rs
 use crate::structures::CipherOption;
-use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha512};
-
-type HmacSha512 = Hmac<Sha512>;
+use argon2::{
+    password_hash::{Output, Salt},
+    Argon2, Params, Version,
+};
 
 #[derive(Debug)]
 pub struct MasterKeys {
     pub aes256_key: [u8; 32],
     pub xchacha20_key: [u8; 32],
     pub grasshopper_key: [u8; 32],
-    pub ntrup1277_seed: [u8; 64], // NTRU Prime seed
+    pub ntrup1277_seed: [u8; 64],
     pub twofish_key: [u8; 32],
-    pub kyber1024_seed: [u8; 84], // Kyber1024 requires 84 bytes for seed
+    pub kyber1024_seed: [u8; 84],
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyDerivationError {
-    #[error("HMAC operation failed")]
-    HmacError,
+    #[error("Argon2 operation failed: {0}")]
+    Argon2Error(String),
     #[error("Invalid entropy length")]
     InvalidEntropyLength,
 }
 
 impl MasterKeys {
-    /// Derive master keys from BIP39 entropy
+    // Argon2id parameters
+    const MEMORY_SIZE: u32 = 64 * 1024; // 64MB
+    const TIME_COST: u32 = 3;
+    const PARALLELISM: u32 = 4;
+
+    /// Derive master keys from BIP39 entropy using Argon2id
     pub fn from_entropy(entropy: &[u8]) -> Result<Self, KeyDerivationError> {
         if entropy.len() < 32 {
             return Err(KeyDerivationError::InvalidEntropyLength);
         }
 
-        // Derive base key material using HKDF
-        let base_key = Self::derive_base_key(entropy);
+        // Initialize Argon2id with default parameters
+        let argon2 = Argon2::new(
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            Params::new(
+                Self::MEMORY_SIZE,
+                Self::TIME_COST,
+                Self::PARALLELISM,
+                Some(32), // Output length in bytes
+            )
+            .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?,
+        );
 
         Ok(Self {
-            aes256_key: Self::derive_symmetric_key(&base_key, CipherOption::AES256)?,
-            xchacha20_key: Self::derive_symmetric_key(&base_key, CipherOption::XChaCha20)?,
-            grasshopper_key: Self::derive_symmetric_key(&base_key, CipherOption::GRASSHOPPER)?,
-            ntrup1277_seed: Self::derive_quantum_seed::<64>(&base_key, CipherOption::NTRUP1277)?,
-            twofish_key: Self::derive_symmetric_key(&base_key, CipherOption::TWOFISH)?,
-            kyber1024_seed: Self::derive_quantum_seed::<84>(&base_key, CipherOption::Kyber1024)?,
+            aes256_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::AES256)?,
+            xchacha20_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::XChaCha20)?,
+            grasshopper_key: Self::derive_symmetric_key(
+                &argon2,
+                entropy,
+                CipherOption::GRASSHOPPER,
+            )?,
+            ntrup1277_seed: Self::derive_quantum_seed::<64>(
+                &argon2,
+                entropy,
+                CipherOption::NTRUP1277,
+            )?,
+            twofish_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::TWOFISH)?,
+            kyber1024_seed: Self::derive_quantum_seed::<84>(
+                &argon2,
+                entropy,
+                CipherOption::Kyber1024,
+            )?,
         })
     }
 
-    // Derive base key material using HKDF
-    fn derive_base_key(entropy: &[u8]) -> [u8; 64] {
-        let mut hasher = Sha512::new();
-        hasher.update(b"PASSMGR_MASTER_KEY");
-        hasher.update(entropy);
+    // Generate unique salt for each cipher
+    fn generate_salt(cipher: CipherOption) -> Salt<'static> {
+        let mut salt = [0u8; 16];
+        salt[0] = cipher.code();
+        salt[1..].copy_from_slice(b"PASSMGR_SALT_V1");
 
-        let mut base_key = [0u8; 64];
-        base_key.copy_from_slice(&hasher.finalize());
-        base_key
+        Salt::from_b64(&base64::encode(salt)).expect("Static salt generation should never fail")
     }
 
     // Derive 32-byte key for symmetric ciphers
     fn derive_symmetric_key(
-        base_key: &[u8],
+        argon2: &Argon2,
+        entropy: &[u8],
         cipher: CipherOption,
     ) -> Result<[u8; 32], KeyDerivationError> {
-        let mut mac =
-            HmacSha512::new_from_slice(base_key).map_err(|_| KeyDerivationError::HmacError)?;
+        let salt = Self::generate_salt(cipher);
+        let mut output = [0u8; 32];
 
-        // Use cipher code as context
-        mac.update(&[cipher.code()]);
-        mac.update(b"SYMMETRIC_KEY");
+        argon2
+            .hash_password_into(entropy, salt.as_ref(), &mut output)
+            .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
 
-        let result = mac.finalize().into_bytes();
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&result[..32]);
-        Ok(key)
+        Ok(output)
     }
 
     // Derive N-byte seed for quantum-resistant algorithms
     fn derive_quantum_seed<const N: usize>(
-        base_key: &[u8],
+        argon2: &Argon2,
+        entropy: &[u8],
         cipher: CipherOption,
     ) -> Result<[u8; N], KeyDerivationError> {
-        let mut mac =
-            HmacSha512::new_from_slice(base_key).map_err(|_| KeyDerivationError::HmacError)?;
-
-        mac.update(&[cipher.code()]);
-        mac.update(b"QUANTUM_SEED");
-        let initial = mac.finalize().into_bytes();
-
-        // For seeds larger than 64 bytes, we need additional iterations
         let mut seed = [0u8; N];
-        let mut offset = 0;
+        let salt = Self::generate_salt(cipher);
 
-        while offset < N {
-            let chunk_size = std::cmp::min(64, N - offset);
-            if offset == 0 {
-                seed[..chunk_size].copy_from_slice(&initial[..chunk_size]);
-            } else {
-                // Generate additional bytes using the previous chunk
-                let mut mac = HmacSha512::new_from_slice(base_key)
-                    .map_err(|_| KeyDerivationError::HmacError)?;
-                mac.update(&seed[..offset]);
-                mac.update(&[cipher.code()]);
-                mac.update(&[offset as u8]);
-                let next = mac.finalize().into_bytes();
-                seed[offset..offset + chunk_size].copy_from_slice(&next[..chunk_size]);
-            }
-            offset += chunk_size;
+        // For seeds larger than 32 bytes, we need multiple derivations
+        for (i, chunk) in seed.chunks_mut(32).enumerate() {
+            let mut temp_salt = [0u8; 20]; // 16 bytes salt + 4 bytes counter
+            temp_salt[..16].copy_from_slice(salt.as_ref());
+            temp_salt[16..].copy_from_slice(&(i as u32).to_le_bytes());
+
+            argon2
+                .hash_password_into(entropy, &temp_salt, chunk)
+                .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
         }
 
         Ok(seed)
@@ -129,14 +138,12 @@ mod tests {
 
     #[test]
     fn test_master_keys_generation() {
-        // Generate random entropy
         let mut entropy = [0u8; 32];
         OsRng.fill_bytes(&mut entropy);
 
-        // Generate master keys
         let master_keys = MasterKeys::from_entropy(&entropy).unwrap();
 
-        // Verify all keys are different
+        // Verify all symmetric keys are different
         let keys = [
             &master_keys.aes256_key[..],
             &master_keys.xchacha20_key[..],
@@ -179,5 +186,22 @@ mod tests {
             MasterKeys::from_entropy(&entropy),
             Err(KeyDerivationError::InvalidEntropyLength)
         ));
+    }
+
+    #[test]
+    fn test_deterministic_derivation() {
+        // Test that same entropy produces same keys
+        let mut entropy = [0u8; 32];
+        OsRng.fill_bytes(&mut entropy);
+
+        let keys1 = MasterKeys::from_entropy(&entropy).unwrap();
+        let keys2 = MasterKeys::from_entropy(&entropy).unwrap();
+
+        assert_eq!(keys1.aes256_key, keys2.aes256_key);
+        assert_eq!(keys1.xchacha20_key, keys2.xchacha20_key);
+        assert_eq!(keys1.grasshopper_key, keys2.grasshopper_key);
+        assert_eq!(keys1.ntrup1277_seed, keys2.ntrup1277_seed);
+        assert_eq!(keys1.twofish_key, keys2.twofish_key);
+        assert_eq!(keys1.kyber1024_seed, keys2.kyber1024_seed);
     }
 }

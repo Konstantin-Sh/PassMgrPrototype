@@ -1,9 +1,10 @@
 [package]
 name = "ciphers"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 
 [dependencies]
+argon2 = { version = "0.5", features = ["std"]}
 rand = "0.8"
 sha2 = "0.10"
 hmac = "0.12"
