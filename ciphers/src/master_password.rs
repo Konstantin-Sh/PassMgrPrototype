@@ -1,12 +1,12 @@
-// ciphers/src/master_password.rs
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Algorithm, Argon2, Params, Version,
 };
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Nonce,
 };
+use rand_core::{OsRng, RngCore};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -131,9 +131,12 @@ impl MasterPassword {
         let cipher = ChaCha20Poly1305::new_from_slice(&self.encryption_key)
             .map_err(|e| MasterPasswordError::EncryptionError(e.to_string()))?;
 
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
         let mut encrypted = cipher
-            .encrypt(&nonce, data)
+            .encrypt(nonce, data)
             .map_err(|e| MasterPasswordError::EncryptionError(e.to_string()))?;
 
         // Prepend nonce to encrypted data
