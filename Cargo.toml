@@ -11,3 +11,5 @@ resolver = "2"
 
 [workspace.dependencies]
 thiserror = "2.0.6"
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
