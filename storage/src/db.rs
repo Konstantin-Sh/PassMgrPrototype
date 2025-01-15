@@ -1,23 +1,22 @@
-use bincode::{deserialize, serialize};
-use directories::ProjectDirs;
-use sled::{Config, Db};
-
 use crate::structures::CipherRecord;
 use crate::StorageError;
+use bincode::{deserialize, serialize};
+use sled::{Config, Db};
+use std::path::PathBuf;
 
 pub struct Storage {
     tree: Db,
-    //    path: ProjectDirs,
+    path: PathBuf,
 }
 
 impl Storage {
-    fn new() -> Result<Self, StorageError> {
+    fn new(path: PathBuf) -> Result<Self, StorageError> {
         let config = Config::new().temporary(true);
 
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
-        Ok(Self { tree: db })
+        Ok(Self { tree: db, path })
     }
     fn set(&self, key: &str, payload: &CipherRecord) -> Result<(), StorageError> {
         self.tree
