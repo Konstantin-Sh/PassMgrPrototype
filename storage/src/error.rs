@@ -14,3 +14,5 @@ pub enum StorageError {
     StorageReadError(String),
     // other variants
 }
+
+pub type Result<T> = std::result::Result<T, StorageError>;

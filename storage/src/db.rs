@@ -1,41 +1,66 @@
-use crate::structures::CipherRecord;
-use crate::StorageError;
+use crate::{
+    error::{Result, StorageError},
+    structures::CipherRecord,
+};
+
 use bincode::{deserialize, serialize};
 use sled::{Config, Db};
 use std::path::PathBuf;
 
 pub struct Storage {
-    tree: Db,
+    db: Db,
     path: PathBuf,
 }
 
 impl Storage {
-    fn new(path: PathBuf) -> Result<Self, StorageError> {
+    //TODO check path exist and db open correct, fix error
+    fn open(path: PathBuf) -> Result<Self> {
         let config = Config::new().temporary(true);
 
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
-        Ok(Self { tree: db, path })
+        Ok(Self { db, path })
     }
-    fn set(&self, key: &str, payload: &CipherRecord) -> Result<(), StorageError> {
-        self.tree
+    //TODO check path don't exist and create new db, fix errors
+    pub fn init(path: PathBuf) -> Result<Self> {
+        let config = Config::new()
+            .path(&path)
+            .mode(sled::Mode::HighThroughput)
+            .cache_capacity(1024 * 1024 * 128) // 128MB cache
+            .flush_every_ms(Some(1000));
+
+        let db = config
+            .open()
+            .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
+
+        Ok(Self { db, path })
+    }
+    fn create(&self, key: &str, payload: &CipherRecord) -> Result<()> {
+        self.db
             .insert(key, serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
-
-    pub fn get(&self, key: &str) -> Result<CipherRecord, StorageError> {
+    pub fn read(&self, key: &str) -> Result<CipherRecord> {
         let some_value = self
-            .tree
+            .db
             .get(key)
             .map_err(|e| StorageError::StorageReadError(e.to_string()))?
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
         Ok(deserialize(&some_value).unwrap())
     }
-    pub fn remove(&self, key: &str) -> Result<(), StorageError> {
-        self.tree
+    //TODO implement it
+    fn update(&self, key: &str, payload: &CipherRecord) -> Result<()> {
+        self.db
+            .insert(key, serialize(payload).unwrap())
+            .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
+
+        Ok(())
+    }
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.db
             .remove(key)
             .map_err(|e| StorageError::StorageReadError(e.to_string()))?;
         Ok(())
@@ -49,8 +74,8 @@ mod storage_tests {
     #[test]
     fn test_read_write() {
         const KEY: &str = "TEST_KEY_FOR_STORAGE";
-
-        let db = Storage::new().unwrap();
+        //TODO create random path for test
+        let db = Storage::init().unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -59,16 +84,17 @@ mod storage_tests {
             data: [0, 42, 0, 42].to_vec(),
         };
 
-        db.set(KEY, &payload).unwrap();
+        db.create(KEY, &payload).unwrap();
 
-        let out = db.get(KEY).unwrap();
+        let out = db.read(KEY).unwrap();
 
         assert_eq!(out, payload);
     }
     #[test]
     fn test_remove() {
         const KEY: &str = "TEST_KEY_FOR_STORAGE1";
-        let db = Storage::new().unwrap();
+        //TODO create random path for test
+        let db = Storage::init().unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -76,9 +102,9 @@ mod storage_tests {
             cipher_options: [0].to_vec(),
             data: [0, 42, 0, 42].to_vec(),
         };
-        db.set(KEY, &payload).unwrap();
-        db.remove(KEY).unwrap();
-        let out = db.get(KEY);
+        db.create(KEY, &payload).unwrap();
+        db.delete(KEY).unwrap();
+        let out = db.read(KEY);
         assert_eq!(out, Error::StorageError::StorageDataNotFound());
     }
 }
