@@ -5,7 +5,7 @@ use crate::{
 
 use bincode::{deserialize, serialize};
 use sled::{Config, Db};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Storage {
     db: Db,
@@ -14,16 +14,19 @@ pub struct Storage {
 
 impl Storage {
     //TODO check path exist and db open correct, fix error
-    fn open(path: PathBuf) -> Result<Self> {
-        let config = Config::new().temporary(true);
-
+    fn open(path: &Path) -> Result<Self> {
+        let config = Config::new()
+        .path(&path)
+        .mode(sled::Mode::HighThroughput)
+        .cache_capacity(1024 * 1024 * 128) // 128MB cache
+        .flush_every_ms(Some(1000));
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
-        Ok(Self { db, path })
+        Ok(Self { db, path: path.to_path_buf() })
     }
     //TODO check path don't exist and create new db, fix errors
-    pub fn init(path: PathBuf) -> Result<Self> {
+    pub fn init(path: &Path) -> Result<Self> {
         let config = Config::new()
             .path(&path)
             .mode(sled::Mode::HighThroughput)
@@ -34,7 +37,7 @@ impl Storage {
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
 
-        Ok(Self { db, path })
+        Ok(Self { db, path: path.to_path_buf() })
     }
     fn create(&self, key: &str, payload: &CipherRecord) -> Result<()> {
         self.db
@@ -59,6 +62,7 @@ impl Storage {
 
         Ok(())
     }
+    //TODO remove all old version
     pub fn delete(&self, key: &str) -> Result<()> {
         self.db
             .remove(key)
@@ -70,12 +74,18 @@ impl Storage {
 #[cfg(test)]
 mod storage_tests {
     use super::*;
+    use crate::StorageError;
+    use tempdir::TempDir;
 
     #[test]
     fn test_read_write() {
         const KEY: &str = "TEST_KEY_FOR_STORAGE";
-        //TODO create random path for test
-        let db = Storage::init().unwrap();
+
+        // Create a temporary directory for this test
+        let tmp_dir = TempDir::new("test_storage").unwrap();
+        let tmp_path = tmp_dir.path(); // Get path as string
+
+        let db = Storage::init(tmp_path).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -93,8 +103,12 @@ mod storage_tests {
     #[test]
     fn test_remove() {
         const KEY: &str = "TEST_KEY_FOR_STORAGE1";
-        //TODO create random path for test
-        let db = Storage::init().unwrap();
+
+        // Create a temporary directory for this test
+        let tmp_dir = TempDir::new("test_storage").unwrap();
+        let tmp_path = tmp_dir.path(); // Get path as string 
+
+        let db = Storage::init(tmp_path).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -104,7 +118,14 @@ mod storage_tests {
         };
         db.create(KEY, &payload).unwrap();
         db.delete(KEY).unwrap();
-        let out = db.read(KEY);
-        assert_eq!(out, Error::StorageError::StorageDataNotFound());
+        
+        // Now we expect the data not to be found, so handle the error properly
+        let result = db.read(KEY);
+
+        // Assert that the result is an Err variant with the specific error
+        match result {
+            Err(StorageError::StorageDataNotFound(_)) => (),
+            _ => panic!("Expected StorageDataNotFound error, but got: {:?}", result),
+        }
     }
 }
