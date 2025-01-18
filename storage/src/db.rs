@@ -16,14 +16,17 @@ impl Storage {
     //TODO check path exist and db open correct, fix error
     fn open(path: &Path) -> Result<Self> {
         let config = Config::new()
-        .path(&path)
-        .mode(sled::Mode::HighThroughput)
-        .cache_capacity(1024 * 1024 * 128) // 128MB cache
-        .flush_every_ms(Some(1000));
+            .path(&path)
+            .mode(sled::Mode::HighThroughput)
+            .cache_capacity(1024 * 1024 * 128) // 128MB cache
+            .flush_every_ms(Some(1000));
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
-        Ok(Self { db, path: path.to_path_buf() })
+        Ok(Self {
+            db,
+            path: path.to_path_buf(),
+        })
     }
     //TODO check path don't exist and create new db, fix errors
     pub fn init(path: &Path) -> Result<Self> {
@@ -37,7 +40,10 @@ impl Storage {
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
 
-        Ok(Self { db, path: path.to_path_buf() })
+        Ok(Self {
+            db,
+            path: path.to_path_buf(),
+        })
     }
     fn create(&self, key: &str, payload: &CipherRecord) -> Result<()> {
         self.db
@@ -62,7 +68,7 @@ impl Storage {
 
         Ok(())
     }
-    //TODO remove all old version
+    //TODO remove all old version `contains_key`
     pub fn delete(&self, key: &str) -> Result<()> {
         self.db
             .remove(key)
@@ -106,7 +112,7 @@ mod storage_tests {
 
         // Create a temporary directory for this test
         let tmp_dir = TempDir::new("test_storage").unwrap();
-        let tmp_path = tmp_dir.path(); // Get path as string 
+        let tmp_path = tmp_dir.path(); // Get path as string
 
         let db = Storage::init(tmp_path).unwrap();
         let payload = CipherRecord {
@@ -118,14 +124,18 @@ mod storage_tests {
         };
         db.create(KEY, &payload).unwrap();
         db.delete(KEY).unwrap();
-        
+
         // Now we expect the data not to be found, so handle the error properly
-        let result = db.read(KEY);
+        //let result = db.read(KEY);
 
         // Assert that the result is an Err variant with the specific error
-        match result {
+        assert!(matches!(
+            db.read(KEY),
+            Err(StorageError::StorageDataNotFound(_))
+        ));
+        /*        match result {
             Err(StorageError::StorageDataNotFound(_)) => (),
             _ => panic!("Expected StorageDataNotFound error, but got: {:?}", result),
-        }
+        }  */
     }
 }
