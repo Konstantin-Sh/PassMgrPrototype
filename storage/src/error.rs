@@ -8,10 +8,14 @@ pub enum StorageError {
     StorageOpenError(String),
     #[error("Key not found: {0}")]
     StorageDataNotFound(String),
-    #[error("Storage set error: {0}")]
+    #[error("Storage write error: {0}")]
     StorageWriteError(String),
-    #[error("Storage get error: {0}")]
+    #[error("Storage read error: {0}")]
     StorageReadError(String),
+    #[error("Storage open error: {0}")]
+    SroragePathNotFoundError(String),
+    #[error("Storage create error: {0}")]
+    SrorageExistError(String),
     // other variants
 }
 

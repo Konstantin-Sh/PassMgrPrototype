@@ -15,6 +15,13 @@ pub struct Storage {
 impl Storage {
     //TODO check path exist and db open correct, fix error
     fn open(path: &Path) -> Result<Self> {
+        // Check if the path not exists
+        if !path.exists() {
+            return Err(StorageError::SroragePathNotFoundError(format!(
+                "Path {:?} does not exist",
+                path
+            )));
+        }
         let config = Config::new()
             .path(&path)
             .mode(sled::Mode::HighThroughput)
@@ -30,6 +37,13 @@ impl Storage {
     }
     //TODO check path don't exist and create new db, fix errors
     pub fn init(path: &Path) -> Result<Self> {
+        // Check if the path exists
+        if path.exists() {
+            return Err(StorageError::SrorageExistError(format!(
+                "Path {:?} is already exist",
+                path
+            )));
+        }
         let config = Config::new()
             .path(&path)
             .mode(sled::Mode::HighThroughput)
