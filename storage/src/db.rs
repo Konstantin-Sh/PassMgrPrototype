@@ -105,7 +105,7 @@ mod storage_tests {
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::init(tmp_path).unwrap();
+        let db = Storage::open(tmp_path).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -128,7 +128,7 @@ mod storage_tests {
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::init(tmp_path).unwrap();
+        let db = Storage::open(tmp_path).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
