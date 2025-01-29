@@ -4,17 +4,18 @@ use crate::{
 };
 
 use bincode::{deserialize, serialize};
-use sled::{Config, Db};
+use sled::{Config, Db, Tree};
 use std::path::{Path, PathBuf};
 
 pub struct Storage {
     db: Db,
     path: PathBuf,
+    user_db: Tree,
 }
 
 impl Storage {
     //TODO check path exist and db open correct, fix error
-    fn open(path: &Path) -> Result<Self> {
+    fn open(path: &Path, uid: u128) -> Result<Self> {
         // Check if the path not exists
         if !path.exists() {
             return Err(StorageError::SroragePathNotFoundError(format!(
@@ -30,12 +31,17 @@ impl Storage {
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
+        let user_db = db
+            .open_tree(uid.to_le_bytes())
+            .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
         Ok(Self {
             db,
             path: path.to_path_buf(),
+            user_db,
         })
     }
     //TODO check path don't exist and create new db, fix errors
+    /*
     pub fn init(path: &Path) -> Result<Self> {
         // Check if the path exists
         if path.exists() {
@@ -59,34 +65,42 @@ impl Storage {
             path: path.to_path_buf(),
         })
     }
-    fn create(&self, key: &str, payload: &CipherRecord) -> Result<()> {
-        self.db
-            .insert(key, serialize(payload).unwrap())
+     */
+    fn set(&self, key: u128, payload: &CipherRecord) -> Result<()> {
+        self.user_db
+            .insert(key.to_be_bytes(), serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
-    pub fn read(&self, key: &str) -> Result<CipherRecord> {
+    pub fn get(&self, key: u128) -> Result<CipherRecord> {
         let some_value = self
-            .db
-            .get(key)
+            .user_db
+            .get(key.to_be_bytes())
             .map_err(|e| StorageError::StorageReadError(e.to_string()))?
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
         Ok(deserialize(&some_value).unwrap())
     }
     //TODO implement it
-    fn update(&self, key: &str, payload: &CipherRecord) -> Result<()> {
-        self.db
-            .insert(key, serialize(payload).unwrap())
+    fn up(&self, key: u128, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
+
+        // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
+
+        self.user_db
+        .remove(key.to_be_bytes())
+        .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
+
+        self.user_db
+            .insert(key.to_be_bytes(), serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
     //TODO remove all old version `contains_key`
-    pub fn delete(&self, key: &str) -> Result<()> {
-        self.db
-            .remove(key)
-            .map_err(|e| StorageError::StorageReadError(e.to_string()))?;
+    pub fn remove(&self, key: u128) -> Result<()> {
+        self.user_db
+            .remove(key.to_be_bytes())
+            .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
         Ok(())
     }
 }
@@ -99,13 +113,13 @@ mod storage_tests {
 
     #[test]
     fn test_read_write() {
-        const KEY: &str = "TEST_KEY_FOR_STORAGE";
+        const KEY: u128 = 4242;
 
         // Create a temporary directory for this test
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::open(tmp_path).unwrap();
+        let db = Storage::open(tmp_path, 42).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -114,21 +128,21 @@ mod storage_tests {
             data: [0, 42, 0, 42].to_vec(),
         };
 
-        db.create(KEY, &payload).unwrap();
+        db.set(KEY, &payload).unwrap();
 
-        let out = db.read(KEY).unwrap();
+        let out = db.get(KEY).unwrap();
 
         assert_eq!(out, payload);
     }
     #[test]
     fn test_remove() {
-        const KEY: &str = "TEST_KEY_FOR_STORAGE1";
+        const KEY: u128 = 4242;
 
         // Create a temporary directory for this test
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::open(tmp_path).unwrap();
+        let db = Storage::open(tmp_path, 42).unwrap();
         let payload = CipherRecord {
             user_id: 1,
             cipher_record_id: 1,
@@ -136,15 +150,15 @@ mod storage_tests {
             cipher_options: [0].to_vec(),
             data: [0, 42, 0, 42].to_vec(),
         };
-        db.create(KEY, &payload).unwrap();
-        db.delete(KEY).unwrap();
+        db.set(KEY, &payload).unwrap();
+        db.remove(KEY).unwrap();
 
         // Now we expect the data not to be found, so handle the error properly
         //let result = db.read(KEY);
 
         // Assert that the result is an Err variant with the specific error
         assert!(matches!(
-            db.read(KEY),
+            db.get(KEY),
             Err(StorageError::StorageDataNotFound(_))
         ));
         /*        match result {
