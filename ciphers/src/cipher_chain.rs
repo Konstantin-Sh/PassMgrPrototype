@@ -1,4 +1,3 @@
-// cipher_chain.rs
 pub trait Cipher {
     fn encrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8>;
     fn decrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8>;
@@ -17,6 +16,12 @@ pub struct CipherChain {
 pub enum Error {
     KeyNotFound,
     InvalidKeyLength,
+}
+
+impl Default for CipherChain {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CipherChain {

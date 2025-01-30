@@ -83,12 +83,11 @@ impl Storage {
     }
     //TODO implement it
     fn up(&self, key: u128, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
-
         // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
 
         self.user_db
-        .remove(key.to_be_bytes())
-        .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
+            .remove(key.to_be_bytes())
+            .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         self.user_db
             .insert(key.to_be_bytes(), serialize(payload).unwrap())
