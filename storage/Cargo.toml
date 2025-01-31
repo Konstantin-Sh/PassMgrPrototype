@@ -1,9 +1,10 @@
 [package]
 name = "storage"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 
 [dependencies]
+ciphers = { path = "../ciphers" }
 sled = "0.34.7"
 
 bincode.workspace = true

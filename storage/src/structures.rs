@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Deserialize, Serialize,)]
 pub enum Atributes {
     Hide,
     Copy,
@@ -15,13 +16,13 @@ impl Atributes {
         }
     }
 }
-
+#[derive(Deserialize, Serialize,)]
 pub struct Item {
     title: String,
     value: String,
     types: Vec<Atributes>,
 }
-
+#[derive(Deserialize, Serialize,)]
 pub struct Record {
     icon: String,
     created: u64,
@@ -37,8 +38,8 @@ pub struct DataBase {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct CipherRecord {
-    pub user_id: u64,
-    pub cipher_record_id: u64,
+    pub user_id: u128,
+    pub cipher_record_id: u128,
     pub ver: u64, // TODO research
     pub cipher_options: Vec<u8>,
     pub data: Vec<u8>,

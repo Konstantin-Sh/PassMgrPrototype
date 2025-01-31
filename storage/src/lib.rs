@@ -1,5 +1,6 @@
 pub mod db;
 pub mod structures;
+pub mod user_db;
 
 pub mod error;
 pub use error::*;

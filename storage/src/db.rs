@@ -4,7 +4,7 @@ use crate::{
 };
 
 use bincode::{deserialize, serialize};
-use sled::{Config, Db, Tree};
+use sled::{Config, Db, IVec, Tree};
 use std::path::{Path, PathBuf};
 
 pub struct Storage {
@@ -15,7 +15,7 @@ pub struct Storage {
 
 impl Storage {
     //TODO check path exist and db open correct, fix error
-    fn open(path: &Path, uid: u128) -> Result<Self> {
+    pub fn open(path: &Path, uid: u128) -> Result<Self> {
         // Check if the path not exists
         if !path.exists() {
             return Err(StorageError::SroragePathNotFoundError(format!(
@@ -66,7 +66,7 @@ impl Storage {
         })
     }
      */
-    fn set(&self, key: u128, payload: &CipherRecord) -> Result<()> {
+    pub fn set(&self, key: u128, payload: &CipherRecord) -> Result<()> {
         self.user_db
             .insert(key.to_be_bytes(), serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
@@ -82,7 +82,7 @@ impl Storage {
         Ok(deserialize(&some_value).unwrap())
     }
     //TODO implement it
-    fn up(&self, key: u128, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
+    pub fn up(&self, key: u128, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
         // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
 
         self.user_db
@@ -102,6 +102,24 @@ impl Storage {
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
         Ok(())
     }
+    pub fn list_ids(&self) -> Result<Vec<u128>> {
+        let mut keys = Vec::new();
+        
+        // Iterate over all items in the tree
+        for item in self.user_db.iter() {
+            let (key, _value): (IVec, IVec) = item.map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
+            // Create a u128 from the first 16 bytes (big-endian)
+            let key_vec: Vec<u8> = key.to_vec();
+            let mut array = [0u8; 16];
+            array.copy_from_slice(&key);
+            // let key_u128 = u128::from_be_bytes(key.as_ref().try_into().unwrap());
+            keys.push(u128::from_be_bytes(array));  // Add the key to the result vector
+            
+        }
+    
+        Ok(keys)
+    }
+
 }
 
 #[cfg(test)]
