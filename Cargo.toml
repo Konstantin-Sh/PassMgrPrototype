@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "ciphers",
+    "crypto",
     "storage",
     "server",
     "network",

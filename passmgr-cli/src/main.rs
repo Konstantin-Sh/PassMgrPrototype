@@ -1,5 +1,5 @@
 // passmgr-cli/src/main.rs
-use ciphers::{
+use crypto::{
     bip39::{Bip39, Bip39Error},
     master_keys::MasterKeys,
     master_password::{MasterPassword, MasterPasswordError},

@@ -4,7 +4,7 @@ version = "0.0.3"
 edition = "2021"
 
 [dependencies]
-ciphers = { path = "../ciphers" }
+ciphers = { path = "../crypto" }
 storage = { path = "../storage" }
 clap = { version = "4.4", features = ["derive"] }
 rpassword = "7.0"

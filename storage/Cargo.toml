@@ -4,8 +4,9 @@ version = "0.0.3"
 edition = "2021"
 
 [dependencies]
-ciphers = { path = "../ciphers" }
+ciphers = { path = "../crypto" }
 sled = "0.34.7"
+soft-aes = "0.2.0"
 
 bincode.workspace = true
 serde.workspace = true
