@@ -106,9 +106,9 @@ impl Storage {
         self.user_db
             .iter()
             .map(|item| {
-                item.map_err(|e| StorageError::StorageWriteError(e.to_string()))
+                item.map_err(|e| StorageError::StorageReadError(e.to_string()))
                     .and_then(|(key, _value)| {
-                        u128::from_be_bytes(
+                        let key_u128 = u128::from_be_bytes(
                             key.as_ref()
                                 .try_into()
                                 .map_err(|e| StorageError::StorageKeyError(e.to_string()))?,
