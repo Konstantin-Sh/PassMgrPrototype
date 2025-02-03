@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize,)]
+#[derive(Deserialize, Serialize)]
 pub enum Atributes {
     Hide,
     Copy,
@@ -16,13 +16,13 @@ impl Atributes {
         }
     }
 }
-#[derive(Deserialize, Serialize,)]
+#[derive(Deserialize, Serialize)]
 pub struct Item {
     title: String,
     value: String,
     types: Vec<Atributes>,
 }
-#[derive(Deserialize, Serialize,)]
+#[derive(Deserialize, Serialize)]
 pub struct Record {
     icon: String,
     created: u64,

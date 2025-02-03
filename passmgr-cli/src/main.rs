@@ -1,10 +1,10 @@
 // passmgr-cli/src/main.rs
+use clap::{Parser, Subcommand};
 use crypto::{
     bip39::{Bip39, Bip39Error},
     master_keys::MasterKeys,
     master_password::{MasterPassword, MasterPasswordError},
 };
-use clap::{Parser, Subcommand};
 use rpassword::read_password;
 use std::io::{self, Write};
 use storage::{Storage, StorageError};

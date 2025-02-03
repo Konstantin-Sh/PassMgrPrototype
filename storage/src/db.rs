@@ -103,23 +103,21 @@ impl Storage {
         Ok(())
     }
     pub fn list_ids(&self) -> Result<Vec<u128>> {
-        let mut keys = Vec::new();
-        
-        // Iterate over all items in the tree
-        for item in self.user_db.iter() {
-            let (key, _value): (IVec, IVec) = item.map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
-            // Create a u128 from the first 16 bytes (big-endian)
-            let key_vec: Vec<u8> = key.to_vec();
-            let mut array = [0u8; 16];
-            array.copy_from_slice(&key);
-            // let key_u128 = u128::from_be_bytes(key.as_ref().try_into().unwrap());
-            keys.push(u128::from_be_bytes(array));  // Add the key to the result vector
-            
-        }
-    
-        Ok(keys)
+        self.user_db
+            .iter()
+            .map(|item| {
+                item.map_err(|e| StorageError::StorageWriteError(e.to_string()))
+                    .and_then(|(key, _value)| {
+                        u128::from_be_bytes(
+                            key.as_ref()
+                                .try_into()
+                                .map_err(|e| StorageError::StorageKeyError(e.to_string()))?,
+                        );
+                        Ok(key_u128)
+                    })
+            })
+            .collect()
     }
-
 }
 
 #[cfg(test)]
