@@ -66,14 +66,14 @@ impl Storage {
         })
     }
      */
-    pub fn set(&self, key: u128, payload: &CipherRecord) -> Result<()> {
+    pub fn set(&self, key: u64, payload: &CipherRecord) -> Result<()> {
         self.user_db
             .insert(key.to_be_bytes(), serialize(payload).unwrap())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
 
         Ok(())
     }
-    pub fn get(&self, key: u128) -> Result<CipherRecord> {
+    pub fn get(&self, key: u64) -> Result<CipherRecord> {
         let some_value = self
             .user_db
             .get(key.to_be_bytes())
@@ -82,7 +82,7 @@ impl Storage {
         Ok(deserialize(&some_value).unwrap())
     }
     //TODO implement it
-    pub fn up(&self, key: u128, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
+    pub fn up(&self, key: u64, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
         // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
 
         self.user_db
@@ -96,19 +96,19 @@ impl Storage {
         Ok(())
     }
     //TODO remove all old version `contains_key`
-    pub fn remove(&self, key: u128) -> Result<()> {
+    pub fn remove(&self, key: u64) -> Result<()> {
         self.user_db
             .remove(key.to_be_bytes())
             .map_err(|e| StorageError::StorageWriteError(e.to_string()))?;
         Ok(())
     }
-    pub fn list_ids(&self) -> Result<Vec<u128>> {
+    pub fn list_ids(&self) -> Result<Vec<u64>> {
         self.user_db
             .iter()
             .map(|item| {
                 item.map_err(|e| StorageError::StorageReadError(e.to_string()))
                     .and_then(|(key, _value)| {
-                        let key_u128 = u128::from_be_bytes(key.as_ref().try_into().map_err(
+                        let key_u128 = u64::from_be_bytes(key.as_ref().try_into().map_err(
                             |e: std::array::TryFromSliceError| {
                                 StorageError::StorageKeyError(e.to_string())
                             },
@@ -128,7 +128,7 @@ mod storage_tests {
 
     #[test]
     fn test_read_write() {
-        const KEY: u128 = 4242;
+        const KEY: u64 = 4242;
 
         // Create a temporary directory for this test
         let tmp_dir = TempDir::new("test_storage").unwrap();
@@ -151,7 +151,7 @@ mod storage_tests {
     }
     #[test]
     fn test_remove() {
-        const KEY: u128 = 4242;
+        const KEY: u64 = 4242;
 
         // Create a temporary directory for this test
         let tmp_dir = TempDir::new("test_storage").unwrap();

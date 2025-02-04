@@ -39,7 +39,7 @@ pub struct DataBase {
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct CipherRecord {
     pub user_id: u128,
-    pub cipher_record_id: u128,
+    pub cipher_record_id: u64,
     pub ver: u64, // TODO research
     pub cipher_options: Vec<u8>,
     pub data: Vec<u8>,

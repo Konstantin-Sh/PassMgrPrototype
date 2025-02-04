@@ -79,7 +79,7 @@ impl UserDb {
         })
     }
 
-    pub fn create(&self, record: Record) -> Result<u128, UserDbError> {
+    pub fn create(&self, record: Record) -> Result<u64, UserDbError> {
         // Generate new record ID
         let record_id = self.generate_record_id();
 
@@ -101,7 +101,7 @@ impl UserDb {
 
         // Save to storage
         self.storage
-            .set(record_id as u128, &cipher_record)
+            .set(record_id, &cipher_record)
             .map_err(UserDbError::StorageError)?;
 
         Ok(record_id)
@@ -111,7 +111,7 @@ impl UserDb {
         // Retrieve cipher record from storage
         let cipher_record = self
             .storage
-            .get(record_id as u128)
+            .get(record_id)
             .map_err(UserDbError::StorageError)?;
 
         // Verify user ID
@@ -129,11 +129,11 @@ impl UserDb {
         Ok(record)
     }
 
-    pub fn update(&self, record_id: u128, record: Record) -> Result<(), UserDbError> {
+    pub fn update(&self, record_id: u64, record: Record) -> Result<(), UserDbError> {
         // First read existing record to get current version
         let current = self
             .storage
-            .get(record_id as u128)
+            .get(record_id)
             .map_err(UserDbError::StorageError)?;
 
         // Serialize and encrypt new data
@@ -152,26 +152,26 @@ impl UserDb {
 
         // Update storage
         self.storage
-            .up(record_id as u128, &cipher_record, &current)
+            .up(record_id, &cipher_record, &current)
             .map_err(UserDbError::StorageError)
     }
 
     pub fn delete(&self, record_id: u64) -> Result<(), UserDbError> {
         self.storage
-            .remove(record_id as u128)
+            .remove(record_id)
             .map_err(UserDbError::StorageError)
     }
 
     /// List all record IDs belonging to the current user
-    pub fn list_records(&self) -> Result<Vec<u128>, UserDbError> {
+    pub fn list_records(&self) -> Result<Vec<u64>, UserDbError> {
         // Get all record IDs from storage
         let ids = self.storage.list_ids().map_err(UserDbError::StorageError)?;
 
         // Filter and convert IDs
         let mut record_ids = Vec::new();
-        for id_128 in ids {
+        for id_64 in ids {
             // Read the record to verify ownership
-            if let Ok(record) = self.storage.get(id_128) {
+            if let Ok(record) = self.storage.get(id_64) {
                 if record.user_id == self.user_id {
                     // Convert u128 to u64 for the record ID
                     record_ids.push(record.cipher_record_id);
@@ -183,13 +183,13 @@ impl UserDb {
     }
 
     /// List all records with their metadata
-    pub fn list_records_with_metadata(&self) -> Result<Vec<(u128, u64, u128)>, UserDbError> {
+    pub fn list_records_with_metadata(&self) -> Result<Vec<(u64, u64, u128)>, UserDbError> {
         // Returns vector of (record_id, version, timestamp)
         let ids = self.storage.list_ids().map_err(UserDbError::StorageError)?;
 
         let mut records = Vec::new();
-        for id_128 in ids {
-            if let Ok(record) = self.storage.get(id_128) {
+        for id_64 in ids {
+            if let Ok(record) = self.storage.get(id_64) {
                 if record.user_id == self.user_id {
                     records.push((record.cipher_record_id, record.ver, record.user_id));
                 }
@@ -201,7 +201,7 @@ impl UserDb {
 
     // Helper methods
 
-    fn generate_record_id(&self) -> u128 {
+    fn generate_record_id(&self) -> u64 {
         // Implementation needed: Generate unique record ID
         // Could use timestamps, random numbers, or a combination
         // For now, using a simple timestamp-based approach
@@ -210,7 +210,7 @@ impl UserDb {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            .into()
+            // .into()
     }
 
     fn get_cipher_options(&self) -> Vec<u8> {
