@@ -7,10 +7,16 @@ use argon2::{
 #[derive(Debug)]
 pub struct MasterKeys {
     pub aes256_key: [u8; 32],
-    pub xchacha20_key: [u8; 32],
-    pub grasshopper_key: [u8; 32],
-    pub ntrup1277_seed: [u8; 64],
+    pub aria_key: [u8; 32],
+    pub belt_key: [u8; 32],
+    pub camellia_key: [u8; 32],
+    pub cast6_key: [u8; 32],
+    pub kuznyechik_key: [u8; 32],
+    pub serpent_key: [u8; 32],
+    pub spec_key: [u8; 32],
     pub twofish_key: [u8; 32],
+    pub xchacha20_key: [u8; 32],
+    pub ntrup1277_seed: [u8; 64],
     pub kyber1024_seed: [u8; 84],
 }
 
@@ -49,18 +55,20 @@ impl MasterKeys {
 
         Ok(Self {
             aes256_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::AES256)?,
+            aria_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::ARIA)?,
+            belt_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::BelT)?,
+            camellia_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::Camellia)?,
+            cast6_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::CAST6)?,
+            kuznyechik_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::Kuznyechik)?,
+            serpent_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::Serpent)?,
+            spec_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::Spec)?,
+            twofish_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::Twofish)?,
             xchacha20_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::XChaCha20)?,
-            grasshopper_key: Self::derive_symmetric_key(
-                &argon2,
-                entropy,
-                CipherOption::GRASSHOPPER,
-            )?,
             ntrup1277_seed: Self::derive_quantum_seed::<64>(
                 &argon2,
                 entropy,
                 CipherOption::NTRUP1277,
             )?,
-            twofish_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::TWOFISH)?,
             kyber1024_seed: Self::derive_quantum_seed::<84>(
                 &argon2,
                 entropy,
@@ -120,11 +128,17 @@ impl MasterKeys {
     pub fn get_key(&self, cipher: CipherOption) -> &[u8] {
         match cipher {
             CipherOption::AES256 => &self.aes256_key,
-            CipherOption::XChaCha20 => &self.xchacha20_key,
-            CipherOption::GRASSHOPPER => &self.grasshopper_key,
-            CipherOption::NTRUP1277 => &self.ntrup1277_seed,
-            CipherOption::TWOFISH => &self.twofish_key,
+            CipherOption::ARIA => &self.aria_key,
+            CipherOption::BelT => &self.belt_key,
+            CipherOption::Camellia => &self.camellia_key,
+            CipherOption::CAST6 => &self.cast6_key,
+            CipherOption::Kuznyechik => &self.kuznyechik_key,
             CipherOption::Kyber1024 => &self.kyber1024_seed,
+            CipherOption::NTRUP1277 => &self.ntrup1277_seed,
+            CipherOption::Serpent => &self.serpent_key,
+            CipherOption::Spec => &self.spec_key,
+            CipherOption::Twofish => &self.twofish_key,
+            CipherOption::XChaCha20 => &self.xchacha20_key,
             CipherOption::END => &[],
         }
     }
