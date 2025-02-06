@@ -28,7 +28,7 @@ impl CipherChain {
         for cipher_option in self.cipher_chain {
             match cipher_option {
                 CipherOption::AES256 => {
-                    let key: &Key<Aes256Gcm> = self.keys.aes256_key.into();
+                    let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
                     let cipher = Aes256Gcm::new(&key);
                     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
                     cipher.encrypt_in_place(&nonce, b"", &mut data)?;
@@ -43,7 +43,7 @@ impl CipherChain {
         for cipher_option in self.cipher_chain.iter().rev() {
             match cipher_option {
                 CipherOption::AES256 => {
-                    let key: &Key<Aes256Gcm> = self.keys.aes256_key.into();
+                    let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
                     let cipher = Aes256Gcm::new(&key);
                     let nonce = data[data.len() - NONCE_SIZE..];
                     data.truncate(data.len() - NONCE_SIZE);
