@@ -1,6 +1,6 @@
 use crate::{CipherOption, MasterKeys};
 use aes_gcm::{
-    aead::{heapless::Vec, AeadCore, AeadInPlace, KeyInit, OsRng},
+    aead::{AeadCore, AeadInPlace, KeyInit, OsRng},
     Aes256Gcm,
     Key, // Or `Aes128Gcm`
     Nonce,
@@ -25,18 +25,19 @@ impl CipherChain {
     }
 
     pub fn encrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
-        for cipher_option in self.cipher_chain {
+        for cipher_option in self.cipher_chain.iter() {
             match cipher_option {
                 CipherOption::AES256 => {
                     let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
                     let cipher = Aes256Gcm::new(&key);
                     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-                    cipher.encrypt_in_place(&nonce, b"", &mut data)?;
+                    cipher.encrypt_in_place(&nonce, b"", data);
                     data.extend_from_slice(&nonce);
                 }
                 _ => unimplemented!(),
             }
         }
+        data.to_vec()
     }
 
     pub fn decrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
@@ -45,14 +46,14 @@ impl CipherChain {
                 CipherOption::AES256 => {
                     let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
                     let cipher = Aes256Gcm::new(&key);
-                    let nonce = data[data.len() - NONCE_SIZE..];
+                    let nonce = Nonce::from_slice(&data[data.len() - NONCE_SIZE..]);
                     data.truncate(data.len() - NONCE_SIZE);
-                    cipher.decrypt_in_place(&nonce, b"", &mut data)?;
-                    data.extend_from_slice(&nonce);
+                    cipher.decrypt_in_place(&nonce, b"", data);
                 }
                 _ => unimplemented!(),
             }
         }
+        data.to_vec()
     }
 }
 
