@@ -210,7 +210,7 @@ impl UserDb {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            // .into()
+        // .into()
     }
 
     fn get_cipher_options(&self) -> Vec<u8> {

@@ -1,15 +1,15 @@
-pub trait Cipher {
-    fn encrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8>;
-    fn decrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8>;
-}
-pub trait CipherKey {
-    fn as_bytes(&self) -> &[u8];
-    fn rotate(&mut self, new_key: &[u8]);
-}
+use crate::{CipherOption, MasterKeys};
+use aes_gcm::{
+    aead::{heapless::Vec, AeadCore, AeadInPlace, KeyInit, OsRng},
+    Aes256Gcm,
+    Key, // Or `Aes128Gcm`
+    Nonce,
+};
 
+pub const NONCE_SIZE: usize = 12;
 pub struct CipherChain {
-    ciphers: Vec<Box<dyn Cipher>>,
-    keys: Vec<Box<dyn CipherKey>>,
+    cipher_chain: Vec<CipherOption>,
+    keys: MasterKeys,
 }
 
 #[derive(Debug)]
@@ -18,54 +18,41 @@ pub enum Error {
     InvalidKeyLength,
 }
 
-impl Default for CipherChain {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CipherChain {
-    pub fn new() -> Self {
-        Self {
-            ciphers: Vec::new(),
-            keys: Vec::new(),
+    pub fn init(mut self, keys: MasterKeys, cipher_chain: Vec<CipherOption>) {
+        self.cipher_chain = cipher_chain;
+        self.keys = keys;
+    }
+
+    pub fn encrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
+        for cipher_option in self.cipher_chain {
+            match cipher_option {
+                CipherOption::AES256 => {
+                    let key: &Key<Aes256Gcm> = self.keys.aes256_key.into();
+                    let cipher = Aes256Gcm::new(&key);
+                    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+                    cipher.encrypt_in_place(&nonce, b"", &mut data)?;
+                    data.extend_from_slice(&nonce);
+                }
+                _ => unimplemented!(),
+            }
         }
     }
 
-    pub fn add_cipher_with_key<C, K>(&mut self, cipher: C, key: K)
-    where
-        C: Cipher + 'static,
-        K: CipherKey + 'static,
-    {
-        self.ciphers.push(Box::new(cipher));
-        self.keys.push(Box::new(key));
-    }
-
-    pub fn encrypt(&self, data: &[u8]) -> Vec<u8> {
-        self.ciphers
-            .iter()
-            .zip(self.keys.iter())
-            .fold(data.to_vec(), |data, (cipher, key)| {
-                cipher.encrypt(&data, key.as_bytes())
-            })
-    }
-
-    pub fn decrypt(&self, data: &[u8]) -> Vec<u8> {
-        self.ciphers
-            .iter()
-            .rev() // Reverse order for decryption
-            .zip(self.keys.iter().rev())
-            .fold(data.to_vec(), |data, (cipher, key)| {
-                cipher.decrypt(&data, key.as_bytes())
-            })
-    }
-
-    pub fn rotate_key(&mut self, index: usize, new_key: &[u8]) -> Result<(), Error> {
-        self.keys
-            .get_mut(index)
-            .ok_or(Error::KeyNotFound)?
-            .rotate(new_key);
-        Ok(())
+    pub fn decrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
+        for cipher_option in self.cipher_chain.iter().rev() {
+            match cipher_option {
+                CipherOption::AES256 => {
+                    let key: &Key<Aes256Gcm> = self.keys.aes256_key.into();
+                    let cipher = Aes256Gcm::new(&key);
+                    let nonce = data[data.len() - NONCE_SIZE..];
+                    data.truncate(data.len() - NONCE_SIZE);
+                    cipher.decrypt_in_place(&nonce, b"", &mut data)?;
+                    data.extend_from_slice(&nonce);
+                }
+                _ => unimplemented!(),
+            }
+        }
     }
 }
 
