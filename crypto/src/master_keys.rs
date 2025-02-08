@@ -69,11 +69,12 @@ impl MasterKeys {
                 entropy,
                 CipherOption::NTRUP1277,
             )?,
-            kyber1024_seed: Self::derive_quantum_seed::<84>(
+            // TODO implement kyber
+            kyber1024_seed: [42u8; 84],/* Self::derive_quantum_seed::<84>(
                 &argon2,
                 entropy,
                 CipherOption::Kyber1024,
-            )?,
+            )?, */
         })
     }
 
