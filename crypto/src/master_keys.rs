@@ -125,7 +125,7 @@ impl MasterKeys {
     }
 
     // Get key for specific cipher
-    pub fn get_key(&self, cipher: CipherOption) -> &[u8] {
+    pub fn get_key(&self, cipher: &CipherOption) -> &[u8] {
         match cipher {
             CipherOption::AES256 => &self.aes256_key,
             CipherOption::ARIA => &self.aria_key,
@@ -139,7 +139,7 @@ impl MasterKeys {
             CipherOption::Spec => &self.spec_key,
             CipherOption::Twofish => &self.twofish_key,
             CipherOption::XChaCha20 => &self.xchacha20_key,
-            CipherOption::END => &[],
+            // CipherOption::END => &[],
         }
     }
 }
@@ -160,7 +160,7 @@ mod tests {
         let keys = [
             &master_keys.aes256_key[..],
             &master_keys.xchacha20_key[..],
-            &master_keys.grasshopper_key[..],
+            &master_keys.kuznyechik_key[..],
             &master_keys.twofish_key[..],
         ];
 
@@ -212,7 +212,7 @@ mod tests {
 
         assert_eq!(keys1.aes256_key, keys2.aes256_key);
         assert_eq!(keys1.xchacha20_key, keys2.xchacha20_key);
-        assert_eq!(keys1.grasshopper_key, keys2.grasshopper_key);
+        assert_eq!(keys1.kuznyechik_key, keys2.kuznyechik_key);
         assert_eq!(keys1.ntrup1277_seed, keys2.ntrup1277_seed);
         assert_eq!(keys1.twofish_key, keys2.twofish_key);
         assert_eq!(keys1.kyber1024_seed, keys2.kyber1024_seed);

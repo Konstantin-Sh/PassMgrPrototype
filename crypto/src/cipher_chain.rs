@@ -1,12 +1,18 @@
 use crate::{CipherOption, MasterKeys};
-use aes_gcm::{
-    aead::{AeadCore, AeadInPlace, KeyInit, OsRng},
-    Aes256Gcm,
-    Key, // Or `Aes128Gcm`
-    Nonce,
+use chacha20::cipher::StreamCipher;
+/*
+use chacha20poly1305::{
+    aead::{AeadCore, AeadInPlace, OsRng},
+    ChaCha20Poly1305, Nonce,
 };
+ */
+use pcbc::cipher::{
+    generic_array::GenericArray, BlockCipher, BlockDecryptMut, BlockEncryptMut, BlockSizeUser,
+    KeyInit, KeyIvInit, Unsigned,
+};
+use pcbc::{Decryptor, Encryptor};
+use rand::RngCore;
 
-pub const NONCE_SIZE: usize = 12;
 pub struct CipherChain {
     cipher_chain: Vec<CipherOption>,
     keys: MasterKeys,
@@ -25,213 +31,255 @@ impl CipherChain {
     }
 
     pub fn encrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
-        for cipher_option in self.cipher_chain.iter() {
-            match cipher_option {
-                CipherOption::AES256 => {
-                    let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
-                    let cipher = Aes256Gcm::new(&key);
-                    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-                    cipher.encrypt_in_place(&nonce, b"", data);
-                    data.extend_from_slice(&nonce);
+        for cipher in self.cipher_chain.iter() {
+            let key = self.keys.get_key(cipher);
+            match cipher {
+                CipherOption::AES256 => self.process::<aes::Aes256>(data, key),
+                CipherOption::ARIA => self.process::<aria::Aria256>(data, key),
+                CipherOption::BelT => self.process::<belt_block::BeltBlock>(data, key),
+                CipherOption::Camellia => self.process::<camellia::Camellia256>(data, key),
+                CipherOption::CAST6 => self.process::<cast6::Cast6>(data, key),
+                CipherOption::Kuznyechik => self.process::<kuznyechik::Kuznyechik>(data, key),
+                CipherOption::Serpent => self.process::<serpent::Serpent>(data, key),
+                CipherOption::Spec => self.process::<speck_cipher::Speck128_256>(data, key),
+                CipherOption::Twofish => self.process::<twofish::Twofish>(data, key),
+                CipherOption::XChaCha20 => {
+                    //let cipher = ChaCha20Poly1305::new(key.into());
+                    //let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+                    //let _ = cipher.encrypt_in_place(&nonce, b"", data);
+
+                    let mut iv = [0u8; 24];
+                    rand::thread_rng().fill_bytes(&mut iv);
+                    data.splice(0..0, iv.iter().copied());
+                    chacha20::XChaCha20::new(key.into(), &iv.into())
+                        .apply_keystream(&mut data[24..]);
                 }
-                _ => unimplemented!(),
+                _ => unimplemented!("Cipher not supported for encryption"),
             }
         }
         data.to_vec()
     }
 
     pub fn decrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
-        for cipher_option in self.cipher_chain.iter().rev() {
-            match cipher_option {
-                CipherOption::AES256 => {
-                    let key: &Key<Aes256Gcm> = Key::<Aes256Gcm>::from_slice(&self.keys.aes256_key);
-                    let cipher = Aes256Gcm::new(&key);
-                    let nonce = Nonce::from_slice(&data[data.len() - NONCE_SIZE..]);
-                    data.truncate(data.len() - NONCE_SIZE);
-                    cipher.decrypt_in_place(&nonce, b"", data);
+        for cipher in self.cipher_chain.iter().rev() {
+            let key = self.keys.get_key(cipher);
+            match cipher {
+                CipherOption::AES256 => self.reverse_process::<aes::Aes256>(data, key),
+                CipherOption::ARIA => self.reverse_process::<aria::Aria256>(data, key),
+                CipherOption::BelT => self.reverse_process::<belt_block::BeltBlock>(data, key),
+                CipherOption::Camellia => self.reverse_process::<camellia::Camellia256>(data, key),
+                CipherOption::CAST6 => self.reverse_process::<cast6::Cast6>(data, key),
+                CipherOption::Kuznyechik => {
+                    self.reverse_process::<kuznyechik::Kuznyechik>(data, key)
                 }
-                _ => unimplemented!(),
+                CipherOption::Serpent => self.reverse_process::<serpent::Serpent>(data, key),
+                CipherOption::Spec => self.reverse_process::<speck_cipher::Speck128_256>(data, key),
+                CipherOption::Twofish => self.reverse_process::<twofish::Twofish>(data, key),
+                CipherOption::XChaCha20 => {
+                    if data.len() < 24 {
+                        panic!("Invalid data length");
+                    }
+                    //let cipher = ChaCha20Poly1305::new(key.into());
+                    //let nonce = GenericArray::from_slice(&data[0..24]);
+                    //data.drain(0..24);
+                    //let _ = cipher.decrypt_in_place(&nonce, b"", data);
+
+                    let iv = &data[0..24];
+
+                    chacha20::XChaCha20::new(key.into(), iv.into())
+                        .apply_keystream(&mut data[24..]);
+                    data.drain(0..24);
+                }
+                _ => unimplemented!("Cipher not supported for decryption"),
             }
         }
         data.to_vec()
+    }
+
+    fn process<C>(&self, data: &mut Vec<u8>, key: &[u8])
+    where
+        C: KeyInit + BlockEncryptMut + BlockCipher + BlockSizeUser,
+    {
+        // Generate IV matching cipher's block size
+        let mut iv = GenericArray::<u8, <C as BlockSizeUser>::BlockSize>::default();
+        rand::thread_rng().fill_bytes(&mut iv);
+
+        // Prepend IV to data
+        data.splice(0..0, iv.iter().copied());
+
+        // Apply PKCS#7 padding
+        let block_size = iv.len();
+        let len_after_iv = data.len() - block_size;
+        let padding = block_size - (len_after_iv % block_size);
+        for _ in 0..padding {
+            data.push(padding as u8);
+        }
+
+        let mut mode = Encryptor::<C>::new(key.into(), &iv);
+        for chunk in data[iv.len()..].chunks_mut(block_size) {
+            mode.encrypt_block_mut(GenericArray::from_mut_slice(chunk));
+        }
+    }
+
+    fn reverse_process<C>(&self, data: &mut Vec<u8>, key: &[u8])
+    where
+        C: KeyInit + BlockDecryptMut + BlockCipher + BlockSizeUser,
+    {
+        let block_size = <C as BlockSizeUser>::BlockSize::to_usize();
+        if data.len() < block_size || (data.len() - block_size) % block_size != 0 {
+            panic!("Invalid data length");
+        }
+
+        let iv = GenericArray::clone_from_slice(&data[0..block_size]);
+        let mut mode = Decryptor::<C>::new(key.into(), &iv);
+
+        for chunk in data[block_size..].chunks_mut(block_size) {
+            mode.decrypt_block_mut(GenericArray::from_mut_slice(chunk));
+        }
+
+        // Remove padding
+        let padding = *data.last().unwrap() as usize;
+        if padding <= block_size {
+            data.truncate(data.len() - padding);
+        }
+
+        // Remove IV
+        data.drain(0..block_size);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MasterKeys;
+    use rand::{rngs::OsRng, RngCore};
 
-    #[derive(Debug)]
-    pub struct XorKey {
-        key: u8,
-    }
-
-    impl CipherKey for XorKey {
-        fn as_bytes(&self) -> &[u8] {
-            std::slice::from_ref(&self.key)
-        }
-
-        fn rotate(&mut self, new_key: &[u8]) {
-            self.key = new_key[0];
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct XorCipher;
-
-    impl Cipher for XorCipher {
-        fn encrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8> {
-            data.iter().map(|byte| byte ^ key[0]).collect()
-        }
-
-        fn decrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8> {
-            // XOR is its own inverse
-            self.encrypt(data, key)
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct AddCipher;
-
-    impl Cipher for AddCipher {
-        fn encrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8> {
-            data.iter().map(|byte| byte.wrapping_add(key[0])).collect()
-        }
-
-        fn decrypt(&self, data: &[u8], key: &[u8]) -> Vec<u8> {
-            data.iter().map(|byte| byte.wrapping_sub(key[0])).collect()
-        }
+    fn create_test_keys() -> MasterKeys {
+        let mut entropy = [0u8; 32];
+        OsRng.fill_bytes(&mut entropy);
+        MasterKeys::from_entropy(&entropy).unwrap()
     }
 
     #[test]
-    fn test_xor_cipher_chain() {
-        let mut chain = CipherChain::new();
+    fn test_single_cipher_roundtrip() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![CipherOption::AES256],
+            keys,
+        };
 
-        // Add first XOR cipher with key 0x42
-        chain.add_cipher_with_key(XorCipher, XorKey { key: 0x42 });
+        let original = b"Hello PCBC mode!".to_vec();
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        // Add second XOR cipher with key 0x13
-        chain.add_cipher_with_key(XorCipher, XorKey { key: 0x13 });
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
 
-        let test_data = b"Hello, World!";
-
-        // Encrypt
-        let encrypted = chain.encrypt(test_data);
-
-        // Decrypt
-        let decrypted = chain.decrypt(&encrypted);
-
-        assert_eq!(test_data, &decrypted[..]);
-
-        // Test intermediate state (after first XOR)
-        let expected_first_xor: Vec<u8> = test_data.iter().map(|&b| b ^ 0x42).collect();
-
-        // Verify first XOR transformation
-        assert_ne!(&encrypted[..], &expected_first_xor[..]);
-
-        // Test key rotation
-        chain.rotate_key(0, &[0x55]).unwrap();
-        let encrypted_after_rotation = chain.encrypt(test_data);
-        assert_ne!(encrypted, encrypted_after_rotation);
+        assert_eq!(original, decrypted);
     }
 
     #[test]
-    fn test_single_byte_operations() {
-        let cipher = XorCipher;
-        let key = XorKey { key: 0x42 };
+    fn test_multi_cipher_chain() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![
+                CipherOption::AES256,
+                CipherOption::XChaCha20,
+                CipherOption::Kuznyechik,
+            ],
+            keys,
+        };
 
-        let test_byte = 0x55;
-        let encrypted = cipher.encrypt(&[test_byte], key.as_bytes());
-        let decrypted = cipher.decrypt(&encrypted, key.as_bytes());
+        let original = b"Multi-cipher chain test".to_vec();
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        assert_eq!(decrypted[0], test_byte);
-        assert_eq!(encrypted[0], test_byte ^ 0x42);
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
+
+        assert_eq!(original, decrypted);
     }
 
     #[test]
-    fn test_mixed_cipher_chain() {
-        let mut chain = CipherChain::new();
+    fn test_empty_data() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![CipherOption::Twofish],
+            keys,
+        };
 
-        // Add XOR cipher with key 0x42
-        chain.add_cipher_with_key(XorCipher, XorKey { key: 0x42 });
+        let original = vec![];
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        // Add Add cipher with key 0x05
-        chain.add_cipher_with_key(
-            AddCipher,
-            XorKey { key: 0x05 }, // Reusing XorKey struct since it's the same concept
-        );
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
 
-        let test_data = b"Hello, World!";
-
-        // Test full chain
-        let encrypted = chain.encrypt(test_data);
-        let decrypted = chain.decrypt(&encrypted);
-        assert_eq!(test_data, &decrypted[..]);
-
-        // Test intermediate states
-        let after_xor: Vec<u8> = test_data.iter().map(|&b| b ^ 0x42).collect();
-
-        let after_add: Vec<u8> = after_xor.iter().map(|&b| b.wrapping_add(0x05)).collect();
-
-        assert_eq!(&encrypted[..], &after_add[..]);
+        assert_eq!(original, decrypted);
     }
 
     #[test]
-    fn test_add_cipher() {
-        let cipher = AddCipher;
-        let key = XorKey { key: 0x05 };
+    fn test_different_block_sizes() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![CipherOption::Kuznyechik],
+            keys,
+        };
 
-        // Test wrapping behavior
-        let test_bytes = vec![0xFF, 0x00, 0x42];
-        let encrypted = cipher.encrypt(&test_bytes, key.as_bytes());
+        // Kuznyechik uses 128-bit blocks
+        let original = b"Testing 128-bit block cipher".to_vec();
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        assert_eq!(encrypted[0], 0x04); // 0xFF + 0x05 = 0x04 (wrapped)
-        assert_eq!(encrypted[1], 0x05); // 0x00 + 0x05 = 0x05
-        assert_eq!(encrypted[2], 0x47); // 0x42 + 0x05 = 0x47
+        // Verify IV size is 16 bytes for Kuznyechik
+        assert_eq!(encrypted.len() % 16, 0);
 
-        let decrypted = cipher.decrypt(&encrypted, key.as_bytes());
-        assert_eq!(decrypted, test_bytes);
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
+
+        assert_eq!(original, decrypted);
     }
 
     #[test]
-    fn test_cipher_order() {
-        let mut chain_xor_then_add = CipherChain::new();
-        chain_xor_then_add.add_cipher_with_key(XorCipher, XorKey { key: 0x42 });
-        chain_xor_then_add.add_cipher_with_key(AddCipher, XorKey { key: 0x05 });
+    fn test_padding_handling() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![CipherOption::Serpent],
+            keys,
+        };
 
-        let mut chain_add_then_xor = CipherChain::new();
-        chain_add_then_xor.add_cipher_with_key(AddCipher, XorKey { key: 0x05 });
-        chain_add_then_xor.add_cipher_with_key(XorCipher, XorKey { key: 0x42 });
+        // Test data that needs padding (13 bytes)
+        let original = b"13-byte test".to_vec();
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        let test_data = b"Test";
-        let result1 = chain_xor_then_add.encrypt(test_data);
-        let result2 = chain_add_then_xor.encrypt(test_data);
+        // Encrypted length should be IV + padded data
+        assert_eq!(encrypted.len(), 16 + 16); // IV + 1 block
 
-        // Results should be different due to different cipher order
-        assert_ne!(result1, result2);
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
 
-        // But both should decrypt correctly
-        assert_eq!(test_data, &chain_xor_then_add.decrypt(&result1)[..]);
-        assert_eq!(test_data, &chain_add_then_xor.decrypt(&result2)[..]);
+        assert_eq!(original, decrypted);
     }
 
     #[test]
-    fn test_key_rotation() {
-        let mut chain = CipherChain::new();
-        chain.add_cipher_with_key(AddCipher, XorKey { key: 0x05 });
+    fn test_stream_cipher_handling() {
+        let keys = create_test_keys();
+        let chain = CipherChain {
+            cipher_chain: vec![CipherOption::XChaCha20],
+            keys,
+        };
 
-        let test_data = b"Test";
-        let encrypted1 = chain.encrypt(test_data);
+        let original = b"Stream cipher test".to_vec();
+        let mut encrypted = original.clone();
+        encrypted = chain.encrypt(&mut encrypted);
 
-        // Rotate key
-        chain.rotate_key(0, &[0x0A]).unwrap();
-        let encrypted2 = chain.encrypt(test_data);
+        // Verify IV/nonce is 24 bytes for XChaCha20
+        assert_eq!(encrypted.len(), original.len() + 24);
 
-        // Results should be different with different key
-        assert_ne!(encrypted1, encrypted2);
+        let mut decrypted = encrypted.clone();
+        decrypted = chain.decrypt(&mut decrypted);
 
-        // Should still decrypt correctly after rotation
-        let decrypted = chain.decrypt(&encrypted2);
-        assert_eq!(test_data, &decrypted[..]);
+        assert_eq!(original, decrypted);
     }
 }

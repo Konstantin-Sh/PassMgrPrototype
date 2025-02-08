@@ -1,10 +1,10 @@
 [package]
 name = "crypto"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 
 [dependencies]
-aes-gcm = "0.10"
+
 argon2 = { version = "0.5", features = ["std", "password-hash"]}
 chacha20poly1305 = { version = "0.10", features = ["std"] }
 hmac = "0.12"
@@ -12,4 +12,17 @@ pbkdf2 = "0.12"
 rand = "0.8"
 rand_core = "0.6.4"
 sha2 = "0.10"
+
+pcbc = "0.1"
+aes = "0.8" 
+aria = "0.1"
+belt-block = "0.1"
+camellia = "0.1"
+cast6 = "0.1"
+chacha20 = "0.9"
+kuznyechik = "0.8"
+serpent = "0.5"
+speck-cipher = "0.0.1"
+twofish = "0.7"
+
 thiserror.workspace = true

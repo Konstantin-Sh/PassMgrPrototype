@@ -7,17 +7,17 @@ pub enum CipherOption {
     Kuznyechik, // Russia standart
     Kyber1024,
     NTRUP1277,
-    Serpent,   // AES finalist
-    Spec,      // NASA lightweight block cipher
-    Twofish,   // AES finalist
+    Serpent, // AES finalist
+    Spec,    // NASA lightweight block cipher
+    Twofish, // AES finalist
     XChaCha20, // lightweight block cipher
-    END,       // Terminal symbol
+             // END,       // Terminal symbol
 }
 
 impl CipherOption {
     pub fn code(&self) -> u8 {
         match self {
-            Self::END => 0,
+            // Self::END => 0,
             Self::AES256 => 1,
             Self::ARIA => 2,
             Self::BelT => 3,
