@@ -146,16 +146,19 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 println!("\nDatabase Management");
                 println!("1. List all records");
                 println!("2. Show record by ID");
-                println!("3. Create new record");
-                println!("4. Update record (unimplemented)");
-                println!("5. Delete record");
-                println!("6. Sync with server (unimplemented)");
-                println!("7. Return to main menu");
+                println!("3. Show password by ID");
+                println!("4. Create new record");
+                println!("5. Update record (unimplemented)");
+                println!("6. Delete record");
+                println!("7. Sync with server (unimplemented)");
+                println!("8. Register on server (unimplemented)");
+                println!("9. Return to main menu");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => list_records(&session.user_db)?,
                     "2" => show_record(&session.user_db)?,
-                    "3" => {
+                    "3" => show_password(&session.user_db)?,
+                    "4" => {
                         state = AppState::NewRecordScreen(
                             session,
                             Record {
@@ -166,8 +169,8 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                             },
                         )
                     }
-                    "5" => delete_record(&session.user_db)?,
-                    "7" => state = AppState::StartScreen,
+                    "6" => delete_record(&session.user_db)?,
+                    "9" => state = AppState::StartScreen,
                     _ => println!("Invalid option or unimplemented feature"),
                 }
             }
@@ -281,6 +284,21 @@ fn show_record(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
         }
         println!();
     }
+    Ok(())
+}
+
+fn show_password(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
+    let record_id = prompt("Enter record ID: ")?;
+    let record = user_db.read(record_id.parse()?)?;
+
+    println!("\nRecord Hidden Details:");
+    for item in record.fields {
+        if item.types.contains(&Atributes::Hide) {
+            println!("[{}]", item.title);
+            println!("Value: {}", &item.value);
+        }
+    }
+    println!();
     Ok(())
 }
 
