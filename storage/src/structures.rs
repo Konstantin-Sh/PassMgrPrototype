@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum Atributes {
     Hide,
     Copy,
@@ -16,18 +16,18 @@ impl Atributes {
         }
     }
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Item {
-    title: String,
-    value: String,
-    types: Vec<Atributes>,
+    pub title: String,
+    pub value: String,
+    pub types: Vec<Atributes>,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Record {
-    icon: String,
-    created: u64,
-    updated: u64,
-    fields: Vec<Item>,
+    pub icon: String,
+    pub created: u64,
+    pub updated: u64,
+    pub fields: Vec<Item>,
 }
 
 pub struct DataBase {

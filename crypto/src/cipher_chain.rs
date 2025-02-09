@@ -13,9 +13,9 @@ use pcbc::cipher::{
 use pcbc::{Decryptor, Encryptor};
 use rand::RngCore;
 
-pub struct CipherChain {
-    cipher_chain: Vec<CipherOption>,
-    keys: MasterKeys,
+pub struct CipherChain<'a> {
+    pub cipher_chain: Vec<CipherOption>,
+    pub keys: &'a MasterKeys,
 }
 
 #[derive(Debug)]
@@ -24,11 +24,11 @@ pub enum Error {
     InvalidKeyLength,
 }
 
-impl CipherChain {
-    pub fn init(mut self, keys: MasterKeys, cipher_chain: Vec<CipherOption>) {
-        self.cipher_chain = cipher_chain;
-        self.keys = keys;
-    }
+impl CipherChain<'_> {
+    // pub fn init(mut self, keys: MasterKeys, cipher_chain: Vec<CipherOption>) {
+    //     self.cipher_chain = cipher_chain;
+    //     self.keys = keys;
+    // }
 
     pub fn encrypt(&self, data: &mut Vec<u8>) -> Vec<u8> {
         for cipher in self.cipher_chain.iter() {
@@ -165,7 +165,7 @@ mod tests {
         let keys = create_test_keys();
         let chain = CipherChain {
             cipher_chain: vec![CipherOption::AES256],
-            keys,
+            keys: &keys,
         };
 
         let original = b"Hello PCBC mode!".to_vec();
@@ -187,7 +187,7 @@ mod tests {
                 CipherOption::XChaCha20,
                 CipherOption::Kuznyechik,
             ],
-            keys,
+            keys: &keys,
         };
 
         let original = b"Multi-cipher chain test".to_vec();
@@ -205,7 +205,7 @@ mod tests {
         let keys = create_test_keys();
         let chain = CipherChain {
             cipher_chain: vec![CipherOption::Twofish],
-            keys,
+            keys: &keys,
         };
 
         let original = vec![];
@@ -223,7 +223,7 @@ mod tests {
         let keys = create_test_keys();
         let chain = CipherChain {
             cipher_chain: vec![CipherOption::Kuznyechik],
-            keys,
+            keys: &keys,
         };
 
         // Kuznyechik uses 128-bit blocks
@@ -239,13 +239,13 @@ mod tests {
 
         assert_eq!(original, decrypted);
     }
-//TODO Test with other algorithm (Serpent has problem)
+    //TODO Test with other algorithm (Serpent has problem)
     #[test]
     fn test_padding_handling() {
         let keys = create_test_keys();
         let chain = CipherChain {
             cipher_chain: vec![CipherOption::AES256],
-            keys,
+            keys: &keys,
         };
 
         // Test data that needs padding (13 bytes)
@@ -267,7 +267,7 @@ mod tests {
         let keys = create_test_keys();
         let chain = CipherChain {
             cipher_chain: vec![CipherOption::XChaCha20],
-            keys,
+            keys: &keys,
         };
 
         let original = b"Stream cipher test".to_vec();
