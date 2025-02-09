@@ -17,12 +17,12 @@ impl Storage {
     //TODO check path exist and db open correct, fix error
     pub fn open(path: &Path, uid: u128) -> Result<Self> {
         // Check if the path not exists
-        if !path.exists() {
-            return Err(StorageError::SroragePathNotFoundError(format!(
-                "Path {:?} does not exist",
-                path
-            )));
-        }
+        // if !path.exists() {
+        //     return Err(StorageError::SroragePathNotFoundError(format!(
+        //         "Path {:?} does not exist",
+        //         path
+        //     )));
+        // }
         let config = Config::new()
             .path(&path)
             .mode(sled::Mode::HighThroughput)
@@ -41,8 +41,8 @@ impl Storage {
         })
     }
     //TODO check path don't exist and create new db, fix errors
-    /*
-    pub fn init(path: &Path) -> Result<Self> {
+
+    pub fn init(path: &Path, uid: u128) -> Result<Self> {
         // Check if the path exists
         if path.exists() {
             return Err(StorageError::SrorageExistError(format!(
@@ -59,13 +59,16 @@ impl Storage {
         let db = config
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
-
+        let user_db = db
+            .open_tree(uid.to_le_bytes())
+            .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
         Ok(Self {
             db,
             path: path.to_path_buf(),
+            user_db,
         })
     }
-     */
+
     pub fn set(&self, key: u64, payload: &CipherRecord) -> Result<()> {
         self.user_db
             .insert(key.to_be_bytes(), serialize(payload).unwrap())
