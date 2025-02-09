@@ -1,5 +1,5 @@
-use ciphers::bip39::{Bip39, Bip39Error};
 use clap::{Parser, Subcommand};
+use crypto::bip39::{Bip39, Bip39Error};
 use std::io::{self, Write};
 
 #[derive(Parser)]
