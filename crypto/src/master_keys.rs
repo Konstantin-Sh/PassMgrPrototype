@@ -3,6 +3,9 @@ use argon2::{
     password_hash::{Output, Salt},
     Argon2, Params, Version,
 };
+use blake2::{Blake2b, Digest, digest::consts::U16};
+
+type Blake2b128 = Blake2b<U16>;
 
 #[derive(Debug)]
 pub struct MasterKeys {
@@ -149,13 +152,15 @@ impl MasterKeys {
     }
     fn derive_user_id(argon2: &Argon2, entropy: &[u8]) -> Result<[u8; 16], KeyDerivationError> {
         let salt: [u8; 16] = *b"PASSMGR_user_V_1";
-        let mut output = [0u8; 16];
+        let mut buffer = [0u8; 32];
 
         argon2
-            .hash_password_into(entropy, &salt, &mut output)
+            .hash_password_into(entropy, &salt, &mut buffer)
             .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
-
-        Ok(output)
+        let mut hasher = Blake2b128::new();
+        hasher.update(buffer);
+        let output = hasher.finalize();
+        Ok(output.into())
     }
 
     fn derive_server_key(argon2: &Argon2, entropy: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
