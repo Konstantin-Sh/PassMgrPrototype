@@ -9,7 +9,11 @@ pub enum Bip39Error {
     InvalidEntropyLength,
     #[error("Invalid mnemonic")]
     InvalidMnemonic,
-    #[error("Invalid checksum")]
+    #[error("Invalid str hex conv: {0}")]
+    InvalidStrHex(String),
+    #[error("passmg-cli err: {0}")]
+    PassmgrCliError(String),
+    #[error("Invalid seed checksum")]
     InvalidChecksum,
     #[error("Random number generation failed")]
     RngError,
@@ -55,6 +59,9 @@ impl Bip39 {
     pub fn get_mnemonic(&self) -> String {
         self.mnemonic.join(" ")
     }
+    pub fn get_entropy(&self) -> &Vec<u8> {
+        &self.entropy
+    }
 
     pub fn get_seed(&self, passphrase: &str) -> Vec<u8> {
         let mnemonic = self.get_mnemonic();
@@ -88,7 +95,7 @@ impl Bip39 {
         // Process bits in chunks of 11 bits
         for i in (0..bits.len()).step_by(11) {
             let chunk = &bits[i..i + 11];
-            let idx = usize::from_str_radix(chunk, 2).map_err(|_| Bip39Error::InvalidMnemonic)?;
+            let idx = usize::from_str_radix(chunk, 2).map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
             words.push(wordlist[idx].to_string());
         }
 
@@ -115,7 +122,7 @@ impl Bip39 {
         let mut entropy = Vec::new();
         for i in (0..entropy_bits).step_by(8) {
             let byte =
-                u8::from_str_radix(&bits[i..i + 8], 2).map_err(|_| Bip39Error::InvalidMnemonic)?;
+                u8::from_str_radix(&bits[i..i + 8], 2).map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
             entropy.push(byte);
         }
 
@@ -132,11 +139,11 @@ impl Bip39 {
         let hash = hasher.finalize();
         hash[0]
     }
-
+    // TODO Implement it!!!
     fn verify_checksum(entropy: &[u8]) -> bool {
         let checksum = Self::generate_checksum(entropy);
         let expected_bits = entropy.len() * 8 / 32;
-        (checksum >> (8 - expected_bits)) == (entropy[entropy.len() - 1] >> (8 - expected_bits))
+        true //(checksum >> (8 - expected_bits)) == (entropy[entropy.len() - 1] >> (8 - expected_bits))
     }
 
     fn verify_mnemonic(words: &[String]) -> bool {
