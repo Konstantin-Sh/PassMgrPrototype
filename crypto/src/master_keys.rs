@@ -6,6 +6,8 @@ use argon2::{
 
 #[derive(Debug)]
 pub struct MasterKeys {
+    pub user_id: [u8; 16],
+    pub server_key: [u8; 32],
     pub aes256_key: [u8; 32],
     pub aria_key: [u8; 32],
     pub belt_key: [u8; 32],
@@ -54,6 +56,8 @@ impl MasterKeys {
         );
 
         Ok(Self {
+            user_id: Self::derive_user_id(&argon2, entropy)?,
+            server_key: Self::derive_server_key(&argon2, entropy)?,
             aes256_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::AES256)?,
             aria_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::ARIA)?,
             belt_key: Self::derive_symmetric_key(&argon2, entropy, CipherOption::BelT)?,
@@ -142,6 +146,27 @@ impl MasterKeys {
             CipherOption::XChaCha20 => &self.xchacha20_key,
             // CipherOption::END => &[],
         }
+    }
+    fn derive_user_id(argon2: &Argon2, entropy: &[u8]) -> Result<[u8; 16], KeyDerivationError> {
+        let salt: [u8; 16] = *b"PASSMGR_user_V_1";
+        let mut output = [0u8; 16];
+
+        argon2
+            .hash_password_into(entropy, &salt, &mut output)
+            .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
+
+        Ok(output)
+    }
+
+    fn derive_server_key(argon2: &Argon2, entropy: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
+        let salt: [u8; 16] = *b"PASSMGR_server_1";
+        let mut output = [0u8; 32];
+
+        argon2
+            .hash_password_into(entropy, &salt, &mut output)
+            .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
+
+        Ok(output)
     }
 }
 
