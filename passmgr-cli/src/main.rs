@@ -109,7 +109,7 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 let mnemonic = bip39.get_mnemonic();
 
                 println!("Your new seed phrase:\n{}\n", mnemonic);
-                if !confirm("Did you save the seed phrase securely? [y/N] ")? {
+                if !confirm_n("Did you save the seed phrase securely? [y/N] ")? {
                     println!("Operation canceled");
                     state = AppState::StartScreen;
                     continue;
@@ -194,9 +194,17 @@ fn prompt(message: &str) -> io::Result<String> {
     Ok(input.trim().to_string())
 }
 
-fn confirm(message: &str) -> io::Result<bool> {
+fn confirm_n(message: &str) -> io::Result<bool> {
     let input = prompt(message)?.to_lowercase();
     Ok(input == "y" || input == "yes")
+}
+fn confirm_y(message: &str) -> io::Result<bool> {
+    let input = prompt(message)?.to_lowercase();
+    if input.to_lowercase().starts_with('n') {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
 }
 
 fn current_timestamp() -> u64 {
@@ -213,7 +221,7 @@ fn confirm_db_path() -> io::Result<PathBuf> {
 
     println!("Default DB path: {}", default_path.display());
 
-    if confirm("Use default path? [Y/n] ")? {
+    if confirm_y("Use default path? [Y/n] ")? {
         Ok(default_path)
     } else {
         let custom_path = prompt("Enter custom path: ")?;
@@ -285,13 +293,13 @@ fn delete_record(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
 
 fn build_record(mut record: Record) -> Result<Record, Box<dyn std::error::Error>> {
     for title in &["Name", "URL", "Login", "Password", "Note"] {
-        if confirm(&format!("Add {} field? [y/N] ", title))? {
+        if confirm_y(&format!("Add {} field? [Y/n] ", title))? {
             let value = prompt(&format!("Enter {}: ", title))?;
             let mut attributes = Vec::new();
 
             if *title == "Password" {
                 attributes.push(Atributes::Hide);
-                if confirm("Enable copy protection? [y/N] ")? {
+                if confirm_n("Enable copy protection? [y/N] ")? {
                     attributes.push(Atributes::Copy);
                 }
             }
@@ -304,7 +312,7 @@ fn build_record(mut record: Record) -> Result<Record, Box<dyn std::error::Error>
         }
     }
 
-    while confirm("Add custom field? [y/N] ")? {
+    while confirm_n("Add custom field? [y/N] ")? {
         let title = prompt("Enter field title: ")?;
         let value = prompt("Enter field value: ")?;
         record.fields.push(Item {
