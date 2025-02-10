@@ -1,14 +1,21 @@
 [package]
 name = "passmgr-cli"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 
 [dependencies]
 crypto = { path = "../crypto" }
 storage = { path = "../storage" }
+passmgr-rpc = { path = "../rpc" }
+
+tokio = { version = "1", features = ["full", "macros"] }
+tonic = { version = "0.12.2", features = ["tls"] }
 clap = { version = "4.4", features = ["derive"] }
-rpassword = "7.0"
+# rpassword = "7.0"
 
 bincode.workspace = true
 dirs.workspace = true
+futures.workspace = true
+prost.workspace = true
 thiserror.workspace = true
+uuid.workspace = true

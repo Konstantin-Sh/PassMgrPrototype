@@ -4,14 +4,16 @@ use crypto::{
     structures::CipherOption,
     MasterKeys,
 };
+use passmgr_rpc::rpc_passmgr::{rpc_passmgr_client::RpcPassmgrClient, RegisterRequest};
 use std::{
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 use storage::{
     structures::{Atributes, Item, Record},
     user_db::UserDb,
 };
+use tonic::transport::Channel;
 
 // ... keep existing Cli and Commands structs ...
 
@@ -30,10 +32,11 @@ enum Commands {
     // ... keep existing subcommands ...
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     if let Commands::Interactive = cli.command {
-        if let Err(e) = interactive_mode() {
+        if let Err(e) = interactive_mode().await {
             eprintln!("Error: {e}");
         }
     }
@@ -44,16 +47,19 @@ enum AppState<'a> {
     OpenDbScreen,
     CreateNewScreen,
     WorkScreen(&'a UserSession),
+    ServerStuff(&'a UserSession),
     NewRecordScreen(&'a UserSession, Record),
 }
 
 struct UserSession {
     user_db: UserDb<'static>,
+    user_id: u128,
+    server_key: [u8; 32],
     // master_keys: MasterKeys,
     db_path: PathBuf,
 }
 
-fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
+async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = AppState::StartScreen;
 
     loop {
@@ -63,13 +69,13 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 println!("1. Open existing database");
                 println!("2. Create new database");
                 println!("3. Restore from server");
-                println!("4. Exit");
+                println!("9. Exit");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => state = AppState::OpenDbScreen,
                     "2" => state = AppState::CreateNewScreen,
                     "3" => unimplemented!("Server restore not implemented"),
-                    "4" => break,
+                    "9" => break,
                     _ => println!("Invalid option"),
                 }
             }
@@ -93,14 +99,17 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     &master_keys,
                     cipher_chain,
                 )?;
+
                 let user_session_owned = UserSession {
                     user_db,
+                    user_id: u128::from_le_bytes(master_keys.user_id),
+                    server_key: master_keys.server_key,
                     //master_keys,
                     db_path,
                 };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
-                state = AppState::WorkScreen(&user_session);
+                state = AppState::WorkScreen(user_session);
             }
 
             AppState::CreateNewScreen => {
@@ -132,14 +141,17 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     &master_keys,
                     cipher_chain,
                 )?;
+
                 let user_session_owned = UserSession {
                     user_db,
+                    user_id: u128::from_le_bytes(master_keys.user_id),
+                    server_key: master_keys.server_key,
                     //master_keys,
                     db_path,
                 };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
-                state = AppState::WorkScreen(&user_session);
+                state = AppState::WorkScreen(user_session);
             }
 
             AppState::WorkScreen(session) => {
@@ -151,7 +163,7 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 println!("5. Update record (unimplemented)");
                 println!("6. Delete record");
                 println!("7. Sync with server (unimplemented)");
-                println!("8. Register on server (unimplemented)");
+                println!("8. Server managment");
                 println!("9. Return to main menu");
 
                 match prompt("Choose option: ")?.as_str() {
@@ -170,6 +182,7 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                         )
                     }
                     "6" => delete_record(&session.user_db)?,
+                    "8" => state = AppState::ServerStuff(session),
                     "9" => state = AppState::StartScreen,
                     _ => println!("Invalid option or unimplemented feature"),
                 }
@@ -181,6 +194,28 @@ fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 let record_id = session.user_db.create(record.clone())?;
                 println!("Created new record with ID: {}", record_id);
                 state = AppState::WorkScreen(session);
+            }
+            AppState::ServerStuff(session) => {
+                println!("\nServer Management");
+                println!("1. Register on server");
+                println!("2. bla");
+                println!("3. bla");
+                println!("9. Return to DB managment");
+                let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
+                    .connect()
+                    .await?;
+                let mut server_client = RpcPassmgrClient::new(channel);
+
+                match prompt("Choose option: ")?.as_str() {
+                    "1" => {
+                        register_on_server(&mut server_client, session.user_id, session.server_key)
+                            .await?;
+                        println!("Registered successfully!");
+                    }
+                    "2" => show_record(&session.user_db)?,
+                    "9" => state = AppState::WorkScreen(session),
+                    _ => println!("Invalid option or unimplemented feature"),
+                }
             }
         }
     }
@@ -361,4 +396,23 @@ fn format_attributes(attributes: &[Atributes]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+async fn register_on_server(
+    client: &mut RpcPassmgrClient<Channel>,
+    user_id: u128,
+    server_key: [u8; 32],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = RegisterRequest {
+        user_id: user_id.to_le_bytes().to_vec(),
+        server_key: server_key.to_vec(),
+    };
+
+    client
+        .register(request)
+        .await?
+        .into_inner()
+        .success
+        .then_some(())
+        .ok_or("Server registration failed".into())
 }
