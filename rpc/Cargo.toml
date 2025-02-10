@@ -1,0 +1,11 @@
+[package]
+name = "passmgr-rpc"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+tonic = { version = "0.12.2", features = ["transport", "codegen", "tls"] }
+prost.workspace = true
+
+[build-dependencies]
+tonic-build = "0.12.2"

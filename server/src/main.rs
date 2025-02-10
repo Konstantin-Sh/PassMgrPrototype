@@ -1,9 +1,9 @@
-use crate::passmgr::passmgr_server_server::{PassmgrServer, PassmgrServerServer};
-use passmgr::{
+use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
+use passmgr_rpc::rpc_passmgr::{
     AuthRequest, AuthResponse, CloseRequest, CloseResponse, DeleteAllRequest, DeleteByIdRequest,
-    DeleteResponse, GetAllRequest, GetByIdRequest, GetListRequest, OneRecordResponse,
-    RecordListResponse, RecordsResponse, RegisterRequest, RegisterResponse, SetOneRequest,
-    SetOneResponse, SetRecordsRequest, SetRecordsResponse,
+    DeleteResponse, GetAllRequest, GetByIdRequest, GetListRequest, OneRecordResponse, Record,
+    RecordId, RecordListResponse, RecordsResponse, RegisterRequest, RegisterResponse,
+    SetOneRequest, SetOneResponse, SetRecordsRequest, SetRecordsResponse,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,9 +14,9 @@ use storage::error::StorageError;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub mod passmgr {
-    tonic::include_proto!("passmgr.server");
-}
+// pub mod passmgr {
+//     tonic::include_proto!("passmgr.server");
+// }
 
 struct PassmgrService {
     auth_db: sled::Db,
@@ -68,7 +68,7 @@ impl PassmgrService {
 }
 
 #[tonic::async_trait]
-impl PassmgrServer for PassmgrService {
+impl RpcPassmgr for PassmgrService {
     async fn register(
         &self,
         request: Request<RegisterRequest>,
@@ -162,7 +162,7 @@ impl PassmgrServer for PassmgrService {
         // TODO research about user_id from DB
         let record_i_ds = records
             .into_iter()
-            .map(|(id, ver, _)| passmgr::RecordId {
+            .map(|(id, ver, _)| RecordId {
                 id,
                 ver,
                 user_id: user_id.to_le_bytes().to_vec(),
@@ -186,7 +186,7 @@ impl PassmgrServer for PassmgrService {
         })?;
 
         Ok(Response::new(OneRecordResponse {
-            record: Some(passmgr::Record {
+            record: Some(Record {
                 id: record.cipher_record_id,
                 ver: record.ver,
                 user_id: user_id.to_le_bytes().to_vec(),
@@ -207,12 +207,12 @@ impl PassmgrServer for PassmgrService {
             .list_ids()
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let mut records: Vec<passmgr::Record> = Vec::new();
+        let mut records: Vec<Record> = Vec::new();
         for record_id in record_ids {
             let record = storage
                 .get(record_id)
                 .map_err(|e| Status::internal(e.to_string()))?;
-            let new_record = passmgr::Record {
+            let new_record = Record {
                 id: record.cipher_record_id,
                 ver: record.ver,
                 user_id: user_id.to_le_bytes().to_vec(),
@@ -318,7 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = PassmgrService::new(auth_db_path, data_dir)?;
 
     let addr = "[::1]:50051".parse()?;
-    let server = PassmgrServerServer::new(service);
+    let server = RpcPassmgrServer::new(service);
 
     println!("Server listening on {}", addr);
 
