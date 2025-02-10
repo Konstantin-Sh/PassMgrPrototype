@@ -25,9 +25,8 @@ struct PassmgrService {
 }
 
 impl PassmgrService {
-    fn new(auth_db_path: &str, data_dir: &str) -> anyhow::Result<Self> {
+    fn new(auth_db_path: PathBuf, data_dir: PathBuf) -> anyhow::Result<Self> {
         let auth_db = sled::open(auth_db_path)?;
-        let data_dir = PathBuf::from(data_dir);
         std::fs::create_dir_all(&data_dir)?;
 
         Ok(Self {
@@ -309,8 +308,13 @@ impl PassmgrServer for PassmgrService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let auth_db_path = "auth_db";
-    let data_dir = "data";
+    let auth_db_path = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("auth_db");
+    let data_dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("data");
+
     let service = PassmgrService::new(auth_db_path, data_dir)?;
 
     let addr = "[::1]:50051".parse()?;
