@@ -527,7 +527,7 @@ async fn sync_with_server(
                             id: local_id,
                             ver: local_record.ver,
                             user_id: server.user_id.to_le_bytes().to_vec(),
-                            data: serialize(&local_record)?,
+                            data: local_record.data,
                         }),
                     })
                     .await?;
