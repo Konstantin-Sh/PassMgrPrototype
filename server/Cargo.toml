@@ -21,6 +21,3 @@ futures.workspace = true
 prost.workspace = true
 sled.workspace = true
 uuid.workspace = true
- 
-[build-dependencies]
-tonic-build = "0.12.2"

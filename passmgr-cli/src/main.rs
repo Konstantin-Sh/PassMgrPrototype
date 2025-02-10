@@ -1,16 +1,20 @@
+use bincode::{deserialize, serialize};
 use clap::{Parser, Subcommand};
 use crypto::{
     bip39::{Bip39, Bip39Error},
     structures::CipherOption,
     MasterKeys,
 };
-use passmgr_rpc::rpc_passmgr::{rpc_passmgr_client::RpcPassmgrClient, RegisterRequest};
+use passmgr_rpc::rpc_passmgr::{
+    rpc_passmgr_client::RpcPassmgrClient, AuthRequest, DeleteAllRequest, GetAllRequest,
+    GetListRequest, RegisterRequest, SetOneRequest,
+};
 use std::{
     io::{self, Write},
     path::PathBuf,
 };
 use storage::{
-    structures::{Atributes, Item, Record},
+    structures::{Atributes, CipherRecord, Item, Record},
     user_db::UserDb,
 };
 use tonic::transport::Channel;
@@ -53,14 +57,24 @@ enum AppState<'a> {
 
 struct UserSession {
     user_db: UserDb<'static>,
+    db_path: PathBuf,
+}
+
+struct ServerSession {
+    client: Option<RpcPassmgrClient<Channel>>,
+    auth_token: Option<String>,
     user_id: u128,
     server_key: [u8; 32],
-    // master_keys: MasterKeys,
-    db_path: PathBuf,
 }
 
 async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = AppState::StartScreen;
+    let mut server = ServerSession {
+        client: None,
+        auth_token: None,
+        user_id: 0, // TODO block uid=0 or Option and server_key also
+        server_key: [0u8; 32],
+    };
 
     loop {
         match state {
@@ -68,14 +82,14 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 println!("\nPassword Manager - Main Menu");
                 println!("1. Open existing database");
                 println!("2. Create new database");
-                println!("3. Restore from server");
-                println!("9. Exit");
+                //println!("3. Restore from server");
+                println!("0. Exit");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => state = AppState::OpenDbScreen,
                     "2" => state = AppState::CreateNewScreen,
-                    "3" => unimplemented!("Server restore not implemented"),
-                    "9" => break,
+                    //"3" => unimplemented!("Server restore not implemented"),
+                    "0" => break,
                     _ => println!("Invalid option"),
                 }
             }
@@ -99,14 +113,10 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     &master_keys,
                     cipher_chain,
                 )?;
+                server.user_id = u128::from_le_bytes(master_keys.user_id);
+                server.server_key = master_keys.server_key;
 
-                let user_session_owned = UserSession {
-                    user_db,
-                    user_id: u128::from_le_bytes(master_keys.user_id),
-                    server_key: master_keys.server_key,
-                    //master_keys,
-                    db_path,
-                };
+                let user_session_owned = UserSession { user_db, db_path };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
                 state = AppState::WorkScreen(user_session);
@@ -141,14 +151,10 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     &master_keys,
                     cipher_chain,
                 )?;
+                server.user_id = u128::from_le_bytes(master_keys.user_id);
+                server.server_key = master_keys.server_key;
 
-                let user_session_owned = UserSession {
-                    user_db,
-                    user_id: u128::from_le_bytes(master_keys.user_id),
-                    server_key: master_keys.server_key,
-                    //master_keys,
-                    db_path,
-                };
+                let user_session_owned = UserSession { user_db, db_path };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
                 state = AppState::WorkScreen(user_session);
@@ -162,9 +168,9 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 println!("4. Create new record");
                 println!("5. Update record (unimplemented)");
                 println!("6. Delete record");
-                println!("7. Sync with server (unimplemented)");
-                println!("8. Server managment");
-                println!("9. Return to main menu");
+                // 7 - free
+                println!("8. Server Management");
+                println!("0. Return to main menu");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => list_records(&session.user_db)?,
@@ -183,7 +189,7 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "6" => delete_record(&session.user_db)?,
                     "8" => state = AppState::ServerStuff(session),
-                    "9" => state = AppState::StartScreen,
+                    "0" => state = AppState::StartScreen,
                     _ => println!("Invalid option or unimplemented feature"),
                 }
             }
@@ -197,23 +203,56 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
             }
             AppState::ServerStuff(session) => {
                 println!("\nServer Management");
-                println!("1. Register on server");
-                println!("2. bla");
-                println!("3. bla");
-                println!("9. Return to DB managment");
-                let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
-                    .connect()
-                    .await?;
-                let mut server_client = RpcPassmgrClient::new(channel);
+                println!("1. Connect to Server");
+                println!("2. Register on Server");
+                println!("3. Auth...");
+                println!("4. Sync with Server");
+                println!("5. List records id from Server");
+                println!("");
+                println!("7. Delete all records from Server");
+                println!("");
+                println!("0. Return to DB managment");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => {
-                        register_on_server(&mut server_client, session.user_id, session.server_key)
-                            .await?;
+                        if server.client.is_none() {
+                            connect_to_server(&mut server).await?;
+                            println!("Connected successfully!");
+                        } else {
+                            println!("Already connected!");
+                        }
+                    }
+                    "2" => {
+                        register_on_server(&mut server).await?;
                         println!("Registered successfully!");
                     }
-                    "2" => show_record(&session.user_db)?,
-                    "9" => state = AppState::WorkScreen(session),
+                    "3" => {
+                        if server.auth_token.is_none() {
+                            authenticate(&mut server).await?;
+                            println!("Auth... successfully!");
+                        } else {
+                            println!("Already auth!");
+                        }
+                    }
+                    "4" => {
+                        // TODO Create struct ServerStuff
+                        sync_with_server(&mut server, session).await?;
+                        println!("Sync completed!");
+                    }
+                    "5" => {
+                        println!("--------------------------");
+                        get_all_ids_server(&mut server).await?;
+                        println!("--------------------------");
+                    }
+                    "7" => {
+                        if confirm_n("Remove all records [y/N]")? {
+                            delete_all_on_server(&mut server).await?;
+                            println!("All records deleted on server");
+                        } else {
+                            println!("Uh, Saved");
+                        }
+                    }
+                    "0" => state = AppState::WorkScreen(session),
                     _ => println!("Invalid option or unimplemented feature"),
                 }
             }
@@ -398,21 +437,159 @@ fn format_attributes(attributes: &[Atributes]) -> String {
         .join(", ")
 }
 
-async fn register_on_server(
-    client: &mut RpcPassmgrClient<Channel>,
-    user_id: u128,
-    server_key: [u8; 32],
-) -> Result<(), Box<dyn std::error::Error>> {
+// Server communication =========================================================
+
+async fn connect_to_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+    let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
+        .connect()
+        .await?;
+    server.client = Some(RpcPassmgrClient::new(channel));
+    Ok(())
+}
+async fn register_on_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO Refactor
+    if server.user_id == 0 {
+        panic!("uninit var: server: ServerSession")
+    };
     let request = RegisterRequest {
-        user_id: user_id.to_le_bytes().to_vec(),
-        server_key: server_key.to_vec(),
+        user_id: server.user_id.to_le_bytes().to_vec(),
+        server_key: server.server_key.to_vec(),
+    };
+    match &mut server.client {
+        Some(client) => client
+            .register(request)
+            .await?
+            .into_inner()
+            .success
+            .then_some(())
+            .ok_or("Server registration failed".into()),
+        None => unimplemented!(),
+    }
+}
+
+// passmgr-cli/src/main.rs
+async fn sync_with_server(
+    server: &mut ServerSession,
+    session: &UserSession,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth_token = match &server.auth_token {
+        Some(c) => c,
+        None => return Err("No auth token provided".into()),
+    };
+    // 1. Get server records
+    let server_records = match &mut server.client {
+        Some(client) => {
+            client
+                .get_all(GetAllRequest {
+                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    auth_token: auth_token.to_string(), // Use actual auth flow
+                })
+                .await?
+                .into_inner()
+                .records
+        }
+        None => unimplemented!(),
     };
 
-    client
-        .register(request)
-        .await?
-        .into_inner()
-        .success
-        .then_some(())
-        .ok_or("Server registration failed".into())
+    // 2. Compare with local
+    let local_records = session.user_db.list_records()?;
+
+    // 3. Conflict resolution
+    for server_record in server_records {
+        let local_exists = local_records.contains(&server_record.id);
+        if !local_exists || server_record.ver > session.user_db.storage.get(server_record.id)?.ver {
+            // Update local
+            session
+                .user_db
+                .update(server_record.id, deserialize(&server_record.data)?)?;
+        }
+    }
+
+    // 4. Push local changes
+    match &mut server.client {
+        Some(client) => {
+            for local_id in local_records {
+                let local_record = session.user_db.storage.get(local_id)?;
+                client
+                    .set_one(SetOneRequest {
+                        user_id: server.user_id.to_le_bytes().to_vec(),
+                        auth_token: "".into(),
+                        record: Some(passmgr_rpc::rpc_passmgr::Record {
+                            id: local_id,
+                            ver: local_record.ver,
+                            user_id: server.user_id.to_le_bytes().to_vec(),
+                            data: serialize(&local_record)?,
+                        }),
+                    })
+                    .await?;
+            }
+        }
+        None => unimplemented!(),
+    }
+
+    Ok(())
+}
+async fn authenticate(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+    // Convert the Option into a Result, returning an error if it's None.
+    let client: &mut RpcPassmgrClient<Channel> = match &mut server.client {
+        Some(c) => c,
+        None => return Err("No client provided".into()),
+    };
+
+    // Use the unwrapped client to perform authentication.
+    let response = client
+        .authenticate(AuthRequest {
+            user_id: server.user_id.to_le_bytes().to_vec(),
+            server_key: server.server_key.to_vec(),
+        })
+        .await?;
+    server.auth_token = Some(response.into_inner().auth_token);
+    Ok(())
+}
+
+async fn delete_all_on_server(
+    server: &mut ServerSession,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth_token = match &server.auth_token {
+        Some(c) => c,
+        None => return Err("No auth token provided".into()),
+    };
+    match &mut server.client {
+        Some(client) => {
+            client
+                .delete_all(DeleteAllRequest {
+                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    auth_token: auth_token.to_string(),
+                })
+                .await?;
+        }
+        None => unimplemented!(),
+    }
+
+    Ok(())
+}
+
+async fn get_all_ids_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+    let auth_token = match &server.auth_token {
+        Some(c) => c,
+        None => return Err("No auth token provided".into()),
+    };
+    // 1. Get server records
+    let server_records = match &mut server.client {
+        Some(client) => {
+            client
+                .get_list(GetListRequest {
+                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    auth_token: auth_token.to_string(), // Use actual auth flow
+                })
+                .await?
+                .into_inner()
+                .record_i_ds
+        }
+        None => unimplemented!(),
+    };
+    for item in server_records {
+        println!("{:?}", item);
+    }
+    Ok(())
 }

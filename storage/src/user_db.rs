@@ -8,7 +8,7 @@ use crypto::MasterKeys;
 use std::path::Path;
 
 pub struct UserDb<'a> {
-    storage: Storage,
+    pub storage: Storage,
     ciphers: CipherChain<'a>,
     user_id: u128,
 }
