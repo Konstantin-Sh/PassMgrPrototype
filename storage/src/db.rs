@@ -84,8 +84,8 @@ impl Storage {
             .ok_or(StorageError::StorageDataNotFound(key.to_string()))?;
         Ok(deserialize(&some_value).unwrap())
     }
-    //TODO implement it
-    pub fn up(&self, key: u64, payload: &CipherRecord, old_payload: &CipherRecord) -> Result<()> {
+    //TODO implement it  /*old_payload: &CipherRecord*/
+    pub fn up(&self, key: u64, payload: &CipherRecord,) -> Result<()> {
         // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
 
         self.user_db

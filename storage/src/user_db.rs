@@ -119,7 +119,7 @@ impl<'a> UserDb<'a> {
 
         // Update storage
         self.storage
-            .up(record_id, &cipher_record, &current)
+            .up(record_id, &cipher_record, /*&current */)
             .map_err(UserDbError::StorageError)
     }
 

@@ -499,9 +499,18 @@ async fn sync_with_server(
         let local_exists = local_records.contains(&server_record.id);
         if !local_exists || server_record.ver > session.user_db.storage.get(server_record.id)?.ver {
             // Update local
+            //TODO Implement
+
             session
-                .user_db
-                .update(server_record.id, deserialize(&server_record.data)?)?;
+                .user_db.storage
+                .up(server_record.id, &CipherRecord {
+                    user_id: server.user_id,
+                    cipher_record_id: server_record.id,
+                    ver: server_record.ver,
+                    cipher_options: vec![], // TODO Fix problev with cipher_options
+                    data: server_record.data,
+
+                })?;
         }
     }
 
@@ -513,7 +522,7 @@ async fn sync_with_server(
                 client
                     .set_one(SetOneRequest {
                         user_id: server.user_id.to_le_bytes().to_vec(),
-                        auth_token: "".into(),
+                        auth_token: auth_token.to_string(),
                         record: Some(passmgr_rpc::rpc_passmgr::Record {
                             id: local_id,
                             ver: local_record.ver,
