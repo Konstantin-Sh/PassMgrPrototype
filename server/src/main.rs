@@ -1,3 +1,327 @@
-fn main() {
-    println!("Hello, world!");
+use crate::passmgr::passmgr_server_server::{PassmgrServer, PassmgrServerServer};
+use passmgr::{
+    AuthRequest, AuthResponse, CloseRequest, CloseResponse, DeleteAllRequest, DeleteByIdRequest,
+    DeleteResponse, GetAllRequest, GetByIdRequest, GetListRequest, OneRecordResponse,
+    RecordListResponse, RecordsResponse, RegisterRequest, RegisterResponse, SetOneRequest,
+    SetOneResponse, SetRecordsRequest, SetRecordsResponse,
+};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use storage::db::Storage;
+use storage::error::StorageError;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+pub mod passmgr {
+    tonic::include_proto!("passmgr.server");
+}
+
+struct PassmgrService {
+    auth_db: sled::Db,
+    data_dir: PathBuf,
+    sessions: Mutex<HashMap<String, (u128, Instant)>>,
+}
+
+impl PassmgrService {
+    fn new(auth_db_path: &str, data_dir: &str) -> anyhow::Result<Self> {
+        let auth_db = sled::open(auth_db_path)?;
+        let data_dir = PathBuf::from(data_dir);
+        std::fs::create_dir_all(&data_dir)?;
+
+        Ok(Self {
+            auth_db,
+            data_dir,
+            sessions: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn validate_session(&self, auth_token: &str) -> Result<u128, Status> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| Status::internal("Failed to access sessions"))?;
+
+        let (user_id, expiry) = sessions
+            .get(auth_token)
+            .ok_or_else(|| Status::unauthenticated("Invalid or expired session"))?;
+
+        if *expiry < Instant::now() {
+            // Remove expired session
+            drop(sessions);
+            let mut sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| Status::internal("Failed to access sessions"))?;
+            sessions.remove(auth_token);
+            return Err(Status::unauthenticated("Session expired"));
+        }
+
+        Ok(*user_id)
+    }
+
+    fn get_user_storage(&self, user_id: u128) -> Result<Storage, Status> {
+        let user_data_dir = self.data_dir.join(user_id.to_string());
+        Storage::open(&user_data_dir, user_id)
+            .map_err(|e| Status::internal(format!("Failed to open user storage: {}", e)))
+    }
+}
+
+#[tonic::async_trait]
+impl PassmgrServer for PassmgrService {
+    async fn register(
+        &self,
+        request: Request<RegisterRequest>,
+    ) -> Result<Response<RegisterResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = req
+            .user_id
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
+        let user_id = u128::from_le_bytes(user_id);
+
+        if self
+            .auth_db
+            .get(user_id.to_le_bytes())
+            .map_err(|e| Status::internal(format!("Failed to access auth database: {}", e)))?
+            .is_some()
+        {
+            return Err(Status::already_exists("User already registered"));
+        }
+
+        self.auth_db
+            .insert(user_id.to_le_bytes(), req.server_key.as_slice())
+            .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
+
+        let user_data_dir = self.data_dir.join(user_id.to_string());
+        std::fs::create_dir_all(&user_data_dir).map_err(|e| {
+            Status::internal(format!("Failed to create user data directory: {}", e))
+        })?;
+
+        Ok(Response::new(RegisterResponse { success: true }))
+    }
+
+    async fn authenticate(
+        &self,
+        request: Request<AuthRequest>,
+    ) -> Result<Response<AuthResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = req
+            .user_id
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
+        let user_id = u128::from_le_bytes(user_id);
+
+        let server_key = self
+            .auth_db
+            .get(user_id.to_le_bytes())
+            .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
+            .ok_or_else(|| Status::not_found("User not found"))?;
+
+        if server_key != req.server_key {
+            return Err(Status::unauthenticated("Invalid server key"));
+        }
+
+        let auth_token = Uuid::new_v4().to_string();
+        let expiry = Instant::now() + Duration::from_secs(3600);
+
+        self.sessions
+            .lock()
+            .map_err(|_| Status::internal("Failed to update sessions"))?
+            .insert(auth_token.clone(), (user_id, expiry));
+
+        Ok(Response::new(AuthResponse { auth_token }))
+    }
+
+    async fn close_session(
+        &self,
+        request: Request<CloseRequest>,
+    ) -> Result<Response<CloseResponse>, Status> {
+        let req = request.into_inner();
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| Status::internal("Failed to access sessions"))?;
+        sessions.remove(&req.auth_token);
+        Ok(Response::new(CloseResponse {}))
+    }
+
+    async fn get_list(
+        &self,
+        request: Request<GetListRequest>,
+    ) -> Result<Response<RecordListResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        let records = storage
+            .list_ids_with_metadata()
+            .map_err(|e| Status::internal(e.to_string()))?;
+        // TODO research about user_id from DB
+        let record_i_ds = records
+            .into_iter()
+            .map(|(id, ver, _)| passmgr::RecordId {
+                id,
+                ver,
+                user_id: user_id.to_le_bytes().to_vec(),
+            })
+            .collect();
+
+        Ok(Response::new(RecordListResponse { record_i_ds }))
+    }
+
+    async fn get_by_id(
+        &self,
+        request: Request<GetByIdRequest>,
+    ) -> Result<Response<OneRecordResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        let record = storage.get(req.cipher_record_id).map_err(|e| match e {
+            StorageError::StorageDataNotFound(_) => Status::not_found("Record not found"),
+            _ => Status::internal(e.to_string()),
+        })?;
+
+        Ok(Response::new(OneRecordResponse {
+            record: Some(passmgr::Record {
+                id: record.cipher_record_id,
+                ver: record.ver,
+                user_id: user_id.to_le_bytes().to_vec(),
+                data: record.data,
+            }),
+        }))
+    }
+
+    async fn get_all(
+        &self,
+        request: Request<GetAllRequest>,
+    ) -> Result<Response<RecordsResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        let record_ids = storage
+            .list_ids()
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let mut records: Vec<passmgr::Record> = Vec::new();
+        for record_id in record_ids {
+            let record = storage
+                .get(record_id)
+                .map_err(|e| Status::internal(e.to_string()))?;
+            let new_record = passmgr::Record {
+                id: record.cipher_record_id,
+                ver: record.ver,
+                user_id: user_id.to_le_bytes().to_vec(),
+                data: record.data,
+            };
+            records.push(new_record);
+        }
+        Ok(Response::new(RecordsResponse { records }))
+    }
+
+    async fn set_one(
+        &self,
+        request: Request<SetOneRequest>,
+    ) -> Result<Response<SetOneResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        let record = req
+            .record
+            .ok_or(Status::invalid_argument("Missing record"))?;
+        let cipher_record = storage::structures::CipherRecord {
+            user_id,
+            cipher_record_id: record.id,
+            ver: record.ver,
+            cipher_options: vec![], // Adjust based on client's cipher chain
+            data: record.data,
+        };
+
+        storage
+            .set(record.id, &cipher_record)
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(SetOneResponse {}))
+    }
+
+    async fn set_records(
+        &self,
+        request: Request<SetRecordsRequest>,
+    ) -> Result<Response<SetRecordsResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        for record in req.records {
+            let cipher_record = storage::structures::CipherRecord {
+                user_id,
+                cipher_record_id: record.id,
+                ver: record.ver,
+                cipher_options: vec![], // Adjust based on client's cipher chain
+                data: record.data,
+            };
+            storage
+                .set(record.id, &cipher_record)
+                .map_err(|e| Status::internal(e.to_string()))?;
+        }
+        Ok(Response::new(SetRecordsResponse {}))
+    }
+
+    async fn delete_by_id(
+        &self,
+        request: Request<DeleteByIdRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+
+        storage
+            .remove(req.record_id)
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(DeleteResponse {}))
+    }
+    async fn delete_all(
+        &self,
+        request: Request<DeleteAllRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
+        let req = request.into_inner();
+        let user_id = self.validate_session(&req.auth_token)?;
+        let storage = self.get_user_storage(user_id)?;
+        let records = storage
+            .list_ids()
+            .map_err(|e| Status::internal(e.to_string()))?;
+        for record_id in records {
+            storage
+                .remove(record_id)
+                .map_err(|e| Status::internal(e.to_string()))?;
+        }
+        Ok(Response::new(DeleteResponse {}))
+    }
+    // Implement other methods similarly...
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let auth_db_path = "auth_db";
+    let data_dir = "data";
+    let service = PassmgrService::new(auth_db_path, data_dir)?;
+
+    let addr = "[::1]:50051".parse()?;
+    let server = PassmgrServerServer::new(service);
+
+    println!("Server listening on {}", addr);
+
+    tonic::transport::Server::builder()
+        .add_service(server)
+        .serve(addr)
+        .await?;
+
+    Ok(())
 }

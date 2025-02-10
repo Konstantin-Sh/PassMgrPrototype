@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package passmgr.server;
+
+service PassmgrServer {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc Authenticate (AuthRequest) returns (AuthResponse);
+  rpc CloseSession (CloseRequest) returns (CloseResponse);
+  
+  rpc GetList (GetListRequest) returns (RecordListResponse);
+  rpc GetAll (GetAllRequest) returns (RecordsResponse);
+  rpc GetById (GetByIdRequest) returns (OneRecordResponse);
+  
+  rpc DeleteAll (DeleteAllRequest) returns (DeleteResponse);
+  rpc DeleteById (DeleteByIdRequest) returns (DeleteResponse);
+  
+  rpc SetOne (SetOneRequest) returns (SetOneResponse);
+  rpc SetRecords (SetRecordsRequest) returns (SetRecordsResponse);
+}
+
+message RegisterRequest {
+  bytes user_id = 1; // u128 as 16 bytes
+  bytes server_key = 2; // 32 bytes
+}
+
+message RegisterResponse {
+  bool success = 1;
+}
+
+message AuthRequest {
+  bytes user_id = 1;
+  bytes server_key = 2;
+}
+
+message AuthResponse {
+  string auth_token = 1;
+}
+
+message CloseRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+}
+
+message CloseResponse {}
+
+message GetListRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+}
+
+message GetAllRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+}
+
+message GetByIdRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+  uint64 cipher_record_id = 3;
+}
+
+message Record {
+  uint64 id = 1;
+  uint64 ver = 2;
+  bytes user_id = 3;
+  bytes data = 4;
+}
+
+message RecordID {
+    uint64 id = 1;
+    uint64 ver = 2;
+    bytes user_id = 3;
+}
+
+message RecordListResponse {
+  repeated RecordID recordIDs = 1;
+}
+
+message RecordsResponse {
+  repeated Record records = 1;
+}
+
+
+message OneRecordResponse {
+  Record record = 1;
+}
+
+message DeleteAllRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+}
+
+message DeleteByIdRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+  uint64 record_id = 3;
+}
+
+message DeleteResponse {}
+
+message SetOneRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+  Record record = 3;
+}
+
+message SetOneResponse {}
+
+message SetRecordsRequest {
+  bytes user_id = 1;
+  string auth_token = 2;
+  repeated Record records = 3;
+}
+
+message SetRecordsResponse {}
