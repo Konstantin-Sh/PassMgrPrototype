@@ -111,15 +111,33 @@ impl Storage {
             .map(|item| {
                 item.map_err(|e| StorageError::StorageReadError(e.to_string()))
                     .and_then(|(key, _value)| {
-                        let key_u128 = u64::from_be_bytes(key.as_ref().try_into().map_err(
+                        let key_u64 = u64::from_be_bytes(key.as_ref().try_into().map_err(
                             |e: std::array::TryFromSliceError| {
                                 StorageError::StorageKeyError(e.to_string())
                             },
                         )?);
-                        Ok(key_u128)
+                        Ok(key_u64)
                     })
             })
             .collect()
+    }
+    // TODO refactor to sleed interface
+    pub fn list_ids_with_metadata(&self) -> Result<Vec<(u64, u64, u128)>> {
+        // Returns vector of (record_id, version, timestamp)
+        let ids = self
+            .list_ids()
+            .map_err(|e| StorageError::StorageReadError(e.to_string()))?;
+
+        let mut records = Vec::new();
+        for id_64 in ids {
+            if let Ok(record) = self.get(id_64) {
+                // if record.user_id == self.user_id {
+                records.push((record.cipher_record_id, record.ver, record.user_id));
+                // }
+            }
+        }
+
+        Ok(records)
     }
 }
 
