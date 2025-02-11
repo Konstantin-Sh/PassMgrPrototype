@@ -317,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let service = PassmgrService::new(auth_db_path, data_dir)?;
 
-    let addr = "[::1]:50051".parse()?;
+    let addr = "0.0.0.0:50051".parse()?;
     let server = RpcPassmgrServer::new(service);
 
     println!("Server listening on {}", addr);
