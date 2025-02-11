@@ -440,7 +440,7 @@ fn format_attributes(attributes: &[Atributes]) -> String {
 // Server communication =========================================================
 
 async fn connect_to_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
-    let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
+    let channel = tonic::transport::Channel::from_static("http://127.0.0.1:50051")
         .connect()
         .await?;
     server.client = Some(RpcPassmgrClient::new(channel));
