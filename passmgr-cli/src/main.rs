@@ -18,6 +18,7 @@ use storage::{
     user_db::UserDb,
 };
 use tonic::transport::Channel;
+use crypto::UserId;
 
 // ... keep existing Cli and Commands structs ...
 
@@ -63,7 +64,7 @@ struct UserSession {
 struct ServerSession {
     client: Option<RpcPassmgrClient<Channel>>,
     auth_token: Option<String>,
-    user_id: u128,
+    user_id: UserId,
     server_key: [u8; 32],
 }
 
@@ -72,7 +73,7 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = ServerSession {
         client: None,
         auth_token: None,
-        user_id: 0, // TODO block uid=0 or Option and server_key also
+        user_id: [0; 32], // TODO block uid=0 or Option and server_key also
         server_key: [0u8; 32],
     };
 
@@ -107,13 +108,9 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     CipherOption::Kuznyechik,
                 ];
 
-                let user_db = UserDb::new(
-                    &db_path,
-                    u128::from_le_bytes(master_keys.user_id),
-                    &master_keys,
-                    cipher_chain,
-                )?;
-                server.user_id = u128::from_le_bytes(master_keys.user_id);
+                let user_db =
+                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
+                server.user_id = master_keys.user_id;
                 server.server_key = master_keys.server_key;
 
                 let user_session_owned = UserSession { user_db, db_path };
@@ -145,13 +142,9 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     CipherOption::Kuznyechik,
                 ];
 
-                let user_db = UserDb::new(
-                    &db_path,
-                    u128::from_le_bytes(master_keys.user_id),
-                    &master_keys,
-                    cipher_chain,
-                )?;
-                server.user_id = u128::from_le_bytes(master_keys.user_id);
+                let user_db =
+                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
+                server.user_id = master_keys.user_id;
                 server.server_key = master_keys.server_key;
 
                 let user_session_owned = UserSession { user_db, db_path };
@@ -448,11 +441,11 @@ async fn connect_to_server(server: &mut ServerSession) -> Result<(), Box<dyn std
 }
 async fn register_on_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
     // TODO Refactor
-    if server.user_id == 0 {
+    if server.user_id == [0; 32] {
         panic!("uninit var: server: ServerSession")
     };
     let request = RegisterRequest {
-        user_id: server.user_id.to_le_bytes().to_vec(),
+        user_id: server.user_id.to_vec(),
         server_key: server.server_key.to_vec(),
     };
     match &mut server.client {
@@ -481,7 +474,7 @@ async fn sync_with_server(
         Some(client) => {
             client
                 .get_all(GetAllRequest {
-                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    user_id: server.user_id.to_vec(),
                     auth_token: auth_token.to_string(), // Use actual auth flow
                 })
                 .await?
@@ -501,16 +494,16 @@ async fn sync_with_server(
             // Update local
             //TODO Implement
 
-            session
-                .user_db.storage
-                .up(server_record.id, &CipherRecord {
+            session.user_db.storage.up(
+                server_record.id,
+                &CipherRecord {
                     user_id: server.user_id,
                     cipher_record_id: server_record.id,
                     ver: server_record.ver,
                     cipher_options: vec![], // TODO Fix problev with cipher_options
                     data: server_record.data,
-
-                })?;
+                },
+            )?;
         }
     }
 
@@ -521,12 +514,12 @@ async fn sync_with_server(
                 let local_record = session.user_db.storage.get(local_id)?;
                 client
                     .set_one(SetOneRequest {
-                        user_id: server.user_id.to_le_bytes().to_vec(),
+                        user_id: server.user_id.to_vec(),
                         auth_token: auth_token.to_string(),
                         record: Some(passmgr_rpc::rpc_passmgr::Record {
                             id: local_id,
                             ver: local_record.ver,
-                            user_id: server.user_id.to_le_bytes().to_vec(),
+                            user_id: server.user_id.to_vec(),
                             data: local_record.data,
                         }),
                     })
@@ -548,7 +541,7 @@ async fn authenticate(server: &mut ServerSession) -> Result<(), Box<dyn std::err
     // Use the unwrapped client to perform authentication.
     let response = client
         .authenticate(AuthRequest {
-            user_id: server.user_id.to_le_bytes().to_vec(),
+            user_id: server.user_id.to_vec(),
             server_key: server.server_key.to_vec(),
         })
         .await?;
@@ -567,7 +560,7 @@ async fn delete_all_on_server(
         Some(client) => {
             client
                 .delete_all(DeleteAllRequest {
-                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    user_id: server.user_id.to_vec(),
                     auth_token: auth_token.to_string(),
                 })
                 .await?;
@@ -588,7 +581,7 @@ async fn get_all_ids_server(server: &mut ServerSession) -> Result<(), Box<dyn st
         Some(client) => {
             client
                 .get_list(GetListRequest {
-                    user_id: server.user_id.to_le_bytes().to_vec(),
+                    user_id: server.user_id.to_vec(),
                     auth_token: auth_token.to_string(), // Use actual auth flow
                 })
                 .await?

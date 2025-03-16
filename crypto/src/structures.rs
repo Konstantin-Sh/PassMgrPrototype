@@ -1,3 +1,5 @@
+pub type UserId = [u8; 32];
+
 pub enum CipherOption {
     AES256,     // USA standart
     ARIA,       // Korea standart

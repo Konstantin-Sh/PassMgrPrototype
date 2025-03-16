@@ -3,14 +3,14 @@ use crate::error::StorageError;
 use crate::structures::{CipherRecord, Record};
 use bincode::{deserialize, serialize};
 use crypto::cipher_chain::CipherChain;
-use crypto::structures::CipherOption;
+use crypto::structures::{CipherOption, UserId};
 use crypto::MasterKeys;
 use std::path::Path;
 
 pub struct UserDb<'a> {
     pub storage: Storage,
     ciphers: CipherChain<'a>,
-    user_id: u128,
+    user_id: UserId,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -28,11 +28,11 @@ pub enum UserDbError {
 impl<'a> UserDb<'a> {
     pub fn new(
         path: &Path,
-        user_id: u128,
+        user_id: UserId,
         master_keys: &'a MasterKeys,
         cipher_chain: Vec<CipherOption>,
     ) -> Result<UserDb<'a>, UserDbError> {
-        let storage = Storage::open(path, user_id as u128).map_err(UserDbError::StorageError)?;
+        let storage = Storage::open(path, user_id).map_err(UserDbError::StorageError)?;
 
         //let mut cipher_chain = CipherChain::new();
         let ciphers = CipherChain {
@@ -119,7 +119,7 @@ impl<'a> UserDb<'a> {
 
         // Update storage
         self.storage
-            .up(record_id, &cipher_record, /*&current */)
+            .up(record_id, &cipher_record /*&current */)
             .map_err(UserDbError::StorageError)
     }
 
@@ -150,7 +150,7 @@ impl<'a> UserDb<'a> {
     }
 
     /// List all records with their metadata
-    pub fn list_records_with_metadata(&self) -> Result<Vec<(u64, u64, u128)>, UserDbError> {
+    pub fn list_records_with_metadata(&self) -> Result<Vec<(u64, u64, [u8; 32])>, UserDbError> {
         // Returns vector of (record_id, version, timestamp)
         let ids = self.storage.list_ids().map_err(UserDbError::StorageError)?;
 
@@ -236,7 +236,13 @@ mod tests {
         // Create temporary directory for testing
         let temp_dir = TempDir::new("user_db_test").unwrap();
         let master_keys = create_test_keys(); // Initialize test master keys
-        let db = UserDb::new(temp_dir.path(), 1, &master_keys, create_test_cipher_chain()).unwrap();
+        let db = UserDb::new(
+            temp_dir.path(),
+            [1; 32],
+            &master_keys,
+            create_test_cipher_chain(),
+        )
+        .unwrap();
 
         // Create several test records
         let record1 = create_record("Password1");
@@ -260,7 +266,7 @@ mod tests {
         for (id, ver, user_id) in records_meta {
             assert!(vec![id1, id2, id3].contains(&id));
             assert_eq!(ver, 1); // All records should be version 1
-            assert_eq!(user_id, 1); // All records should belong to user 1
+            assert_eq!(user_id, [1; 32]); // All records should belong to user 1
         }
     }
 
@@ -274,7 +280,13 @@ mod tests {
 
         // Initialize UserDb
         let master_keys = create_test_keys(); // Initialize test master keys
-        let db = UserDb::new(temp_dir.path(), 1, &master_keys, create_test_cipher_chain()).unwrap();
+        let db = UserDb::new(
+            temp_dir.path(),
+            [1; 32],
+            &master_keys,
+            create_test_cipher_chain(),
+        )
+        .unwrap();
 
         // Test create
         let record_id = db.create(record.clone()).unwrap();

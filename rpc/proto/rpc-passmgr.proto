@@ -19,7 +19,7 @@ service RpcPassmgr {
 }
 
 message RegisterRequest {
-  bytes user_id = 1; // u128 as 16 bytes
+  bytes user_id = 1; // 
   bytes server_key = 2; // 32 bytes
 }
 

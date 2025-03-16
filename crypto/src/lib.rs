@@ -5,4 +5,4 @@ pub mod master_password;
 pub mod structures;
 
 pub use master_keys::MasterKeys;
-pub use structures::CipherOption;
+pub use structures::{CipherOption, UserId};

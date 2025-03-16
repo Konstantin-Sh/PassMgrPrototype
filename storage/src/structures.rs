@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crypto::UserId;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum Atributes {
@@ -38,7 +39,7 @@ pub struct DataBase {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct CipherRecord {
-    pub user_id: u128,
+    pub user_id: UserId,
     pub cipher_record_id: u64,
     pub ver: u64, // TODO research
     pub cipher_options: Vec<u8>,

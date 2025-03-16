@@ -1,3 +1,4 @@
+use crypto::UserId;
 use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
 use passmgr_rpc::rpc_passmgr::{
     AuthRequest, AuthResponse, CloseRequest, CloseResponse, DeleteAllRequest, DeleteByIdRequest,
@@ -13,7 +14,6 @@ use storage::db::Storage;
 use storage::error::StorageError;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
-
 // pub mod passmgr {
 //     tonic::include_proto!("passmgr.server");
 // }
@@ -21,7 +21,7 @@ use uuid::Uuid;
 struct PassmgrService {
     auth_db: sled::Db,
     data_dir: PathBuf,
-    sessions: Mutex<HashMap<String, (u128, Instant)>>,
+    sessions: Mutex<HashMap<String, (UserId, Instant)>>,
 }
 
 impl PassmgrService {
@@ -36,7 +36,7 @@ impl PassmgrService {
         })
     }
 
-    fn validate_session(&self, auth_token: &str) -> Result<u128, Status> {
+    fn validate_session(&self, auth_token: &str) -> Result<UserId, Status> {
         let sessions = self
             .sessions
             .lock()
@@ -60,8 +60,12 @@ impl PassmgrService {
         Ok(*user_id)
     }
 
-    fn get_user_storage(&self, user_id: u128) -> Result<Storage, Status> {
-        let user_data_dir = self.data_dir.join(user_id.to_string());
+    fn get_user_storage(&self, user_id: UserId) -> Result<Storage, Status> {
+        let hex_id = user_id.iter().fold(String::new(), |mut acc, b| {
+            acc.push_str(&format!("{:02x}", b));
+            acc
+        });
+        let user_data_dir = self.data_dir.join(hex_id);
         Storage::open(&user_data_dir, user_id)
             .map_err(|e| Status::internal(format!("Failed to open user storage: {}", e)))
     }
@@ -74,16 +78,15 @@ impl RpcPassmgr for PassmgrService {
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
         let req = request.into_inner();
-        let user_id = req
+        let user_id: UserId = req
             .user_id
             .as_slice()
             .try_into()
             .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
-        let user_id = u128::from_le_bytes(user_id);
 
         if self
             .auth_db
-            .get(user_id.to_le_bytes())
+            .get(user_id.to_vec())
             .map_err(|e| Status::internal(format!("Failed to access auth database: {}", e)))?
             .is_some()
         {
@@ -91,10 +94,15 @@ impl RpcPassmgr for PassmgrService {
         }
 
         self.auth_db
-            .insert(user_id.to_le_bytes(), req.server_key.as_slice())
+            .insert(user_id.to_vec(), req.server_key.as_slice())
             .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
 
-        let user_data_dir = self.data_dir.join(user_id.to_string());
+        let hex_id = user_id.iter().fold(String::new(), |mut acc, b| {
+            acc.push_str(&format!("{:02x}", b));
+            acc
+        });
+
+        let user_data_dir = self.data_dir.join(hex_id);
         std::fs::create_dir_all(&user_data_dir).map_err(|e| {
             Status::internal(format!("Failed to create user data directory: {}", e))
         })?;
@@ -107,16 +115,15 @@ impl RpcPassmgr for PassmgrService {
         request: Request<AuthRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
         let req = request.into_inner();
-        let user_id = req
+        let user_id: UserId = req
             .user_id
             .as_slice()
             .try_into()
             .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
-        let user_id = u128::from_le_bytes(user_id);
 
         let server_key = self
             .auth_db
-            .get(user_id.to_le_bytes())
+            .get(user_id.to_vec())
             .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
             .ok_or_else(|| Status::not_found("User not found"))?;
 
@@ -165,7 +172,7 @@ impl RpcPassmgr for PassmgrService {
             .map(|(id, ver, _)| RecordId {
                 id,
                 ver,
-                user_id: user_id.to_le_bytes().to_vec(),
+                user_id: user_id.to_vec(),
             })
             .collect();
 
@@ -189,7 +196,7 @@ impl RpcPassmgr for PassmgrService {
             record: Some(Record {
                 id: record.cipher_record_id,
                 ver: record.ver,
-                user_id: user_id.to_le_bytes().to_vec(),
+                user_id: user_id.to_vec(),
                 data: record.data,
             }),
         }))
@@ -215,7 +222,7 @@ impl RpcPassmgr for PassmgrService {
             let new_record = Record {
                 id: record.cipher_record_id,
                 ver: record.ver,
-                user_id: user_id.to_le_bytes().to_vec(),
+                user_id: user_id.to_vec(),
                 data: record.data,
             };
             records.push(new_record);

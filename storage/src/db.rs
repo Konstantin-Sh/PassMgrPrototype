@@ -4,7 +4,7 @@ use crate::{
 };
 
 use bincode::{deserialize, serialize};
-use sled::{Config, Db, IVec, Tree};
+use sled::{Config, Db, Tree};
 use std::path::{Path, PathBuf};
 
 pub struct Storage {
@@ -15,7 +15,7 @@ pub struct Storage {
 
 impl Storage {
     //TODO check path exist and db open correct, fix error
-    pub fn open(path: &Path, uid: u128) -> Result<Self> {
+    pub fn open(path: &Path, uid: [u8; 32]) -> Result<Self> {
         // Check if the path not exists
         // if !path.exists() {
         //     return Err(StorageError::SroragePathNotFoundError(format!(
@@ -32,7 +32,7 @@ impl Storage {
             .open()
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
         let user_db = db
-            .open_tree(uid.to_le_bytes())
+            .open_tree(uid)
             .map_err(|e| StorageError::StorageOpenError(e.to_string()))?;
         Ok(Self {
             db,
@@ -85,7 +85,7 @@ impl Storage {
         Ok(deserialize(&some_value).unwrap())
     }
     //TODO implement it  /*old_payload: &CipherRecord*/
-    pub fn up(&self, key: u64, payload: &CipherRecord,) -> Result<()> {
+    pub fn up(&self, key: u64, payload: &CipherRecord) -> Result<()> {
         // match self.user_db.compare_and_swap(key.to_be_bytes(), old_payload, payload)?
 
         self.user_db
@@ -122,7 +122,7 @@ impl Storage {
             .collect()
     }
     // TODO refactor to sleed interface
-    pub fn list_ids_with_metadata(&self) -> Result<Vec<(u64, u64, u128)>> {
+    pub fn list_ids_with_metadata(&self) -> Result<Vec<(u64, u64, [u8; 32])>> {
         // Returns vector of (record_id, version, timestamp)
         let ids = self
             .list_ids()
@@ -155,9 +155,9 @@ mod storage_tests {
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::open(tmp_path, 42).unwrap();
+        let db = Storage::open(tmp_path, [42; 32]).unwrap();
         let payload = CipherRecord {
-            user_id: 1,
+            user_id: [1; 32],
             cipher_record_id: 1,
             ver: 1,
             cipher_options: [0].to_vec(),
@@ -178,9 +178,9 @@ mod storage_tests {
         let tmp_dir = TempDir::new("test_storage").unwrap();
         let tmp_path = tmp_dir.path(); // Get path as string
 
-        let db = Storage::open(tmp_path, 42).unwrap();
+        let db = Storage::open(tmp_path, [42; 32]).unwrap();
         let payload = CipherRecord {
-            user_id: 1,
+            user_id: [1; 32],
             cipher_record_id: 1,
             ver: 1,
             cipher_options: [0].to_vec(),

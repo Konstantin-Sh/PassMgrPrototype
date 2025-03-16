@@ -95,7 +95,8 @@ impl Bip39 {
         // Process bits in chunks of 11 bits
         for i in (0..bits.len()).step_by(11) {
             let chunk = &bits[i..i + 11];
-            let idx = usize::from_str_radix(chunk, 2).map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
+            let idx = usize::from_str_radix(chunk, 2)
+                .map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
             words.push(wordlist[idx].to_string());
         }
 
@@ -121,8 +122,8 @@ impl Bip39 {
 
         let mut entropy = Vec::new();
         for i in (0..entropy_bits).step_by(8) {
-            let byte =
-                u8::from_str_radix(&bits[i..i + 8], 2).map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
+            let byte = u8::from_str_radix(&bits[i..i + 8], 2)
+                .map_err(|e| Bip39Error::InvalidStrHex(e.to_string()))?;
             entropy.push(byte);
         }
 
