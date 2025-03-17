@@ -1,13 +1,14 @@
-use bincode::{deserialize, serialize};
 use clap::{Parser, Subcommand};
+use crypto::UserId;
 use crypto::{
     bip39::{Bip39, Bip39Error},
+    master_keys::AssymetricKeypair,
     structures::CipherOption,
     MasterKeys,
 };
 use passmgr_rpc::rpc_passmgr::{
-    rpc_passmgr_client::RpcPassmgrClient, AuthRequest, DeleteAllRequest, GetAllRequest,
-    GetListRequest, RegisterRequest, SetOneRequest,
+    rpc_passmgr_client::RpcPassmgrClient, AuthChallengeRequest, AuthChallengeResponse, AuthRequest,
+    DeleteAllRequest, GetAllRequest, GetListRequest, RegisterRequest, SetOneRequest,
 };
 use std::{
     io::{self, Write},
@@ -18,7 +19,6 @@ use storage::{
     user_db::UserDb,
 };
 use tonic::transport::Channel;
-use crypto::UserId;
 
 // ... keep existing Cli and Commands structs ...
 
@@ -34,16 +34,25 @@ struct Cli {
 enum Commands {
     /// Start interactive mode
     Interactive,
+    Refactor,
     // ... keep existing subcommands ...
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    if let Commands::Interactive = cli.command {
-        if let Err(e) = interactive_mode().await {
-            eprintln!("Error: {e}");
+    // if let Commands::Interactive = cli.command {
+    //     if let Err(e) = interactive_mode().await {
+    //         eprintln!("Error: {e}");
+    //     }
+    // }
+    match cli.command {
+        Commands::Interactive => {
+            if let Err(e) = interactive_mode().await {
+                eprintln!("Error: {e}");
+            }
         }
+        _ => println!("Invalid option or unimplemented feature"),
     }
 }
 
@@ -58,7 +67,7 @@ enum AppState<'a> {
 
 struct UserSession {
     user_db: UserDb<'static>,
-    db_path: PathBuf,
+    // db_path: PathBuf,
 }
 
 struct ServerSession {
@@ -66,6 +75,7 @@ struct ServerSession {
     auth_token: Option<String>,
     user_id: UserId,
     server_key: [u8; 32],
+    key_pairs: Option<AssymetricKeypair>,
 }
 
 async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
@@ -75,6 +85,7 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
         auth_token: None,
         user_id: [0; 32], // TODO block uid=0 or Option and server_key also
         server_key: [0u8; 32],
+        key_pairs: None,
     };
 
     loop {
@@ -112,8 +123,12 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
                 server.user_id = master_keys.user_id;
                 server.server_key = master_keys.server_key;
+                server.key_pairs = Some(AssymetricKeypair::generate_dilithium2(
+                    &master_keys.dilithium_seed,
+                ));
 
-                let user_session_owned = UserSession { user_db, db_path };
+                // let user_session_owned = UserSession { user_db, db_path };
+                let user_session_owned = UserSession { user_db };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
                 state = AppState::WorkScreen(user_session);
@@ -146,8 +161,12 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                     UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
                 server.user_id = master_keys.user_id;
                 server.server_key = master_keys.server_key;
+                server.key_pairs = Some(AssymetricKeypair::generate_dilithium2(
+                    &master_keys.dilithium_seed,
+                ));
 
-                let user_session_owned = UserSession { user_db, db_path };
+                // let user_session_owned = UserSession { user_db, db_path };
+                let user_session_owned = UserSession { user_db };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
 
                 state = AppState::WorkScreen(user_session);
@@ -444,9 +463,18 @@ async fn register_on_server(server: &mut ServerSession) -> Result<(), Box<dyn st
     if server.user_id == [0; 32] {
         panic!("uninit var: server: ServerSession")
     };
+
+    // let keypair = Keypair::generate(Some(&seed));
+    // let keypair = dilithium2::Keypair::generate(Some(&server.user_id));
+    let pub_key = match &server.key_pairs {
+        Some(pk) => &pk.dilithium_keypair.public,
+        None => panic!("No public key found"),
+    };
+
     let request = RegisterRequest {
         user_id: server.user_id.to_vec(),
         server_key: server.server_key.to_vec(),
+        pub_key: pub_key.bytes.to_vec(),
     };
     match &mut server.client {
         Some(client) => client
@@ -537,12 +565,23 @@ async fn authenticate(server: &mut ServerSession) -> Result<(), Box<dyn std::err
         Some(c) => c,
         None => return Err("No client provided".into()),
     };
+    let challenge = client
+        .auth_challenge(AuthChallengeRequest {
+            user_id: server.user_id.to_vec(),
+        })
+        .await?;
 
+    let keypair = match &server.key_pairs {
+        Some(pk) => &pk.dilithium_keypair,
+        None => panic!("No public key found"),
+    };
+    let challenge_signature = keypair.sign(&challenge.into_inner().challenge);
+    // TODO remove comment
     // Use the unwrapped client to perform authentication.
     let response = client
         .authenticate(AuthRequest {
             user_id: server.user_id.to_vec(),
-            server_key: server.server_key.to_vec(),
+            challenge_signature: challenge_signature.to_vec(),
         })
         .await?;
     server.auth_token = Some(response.into_inner().auth_token);

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crypto::UserId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum Atributes {

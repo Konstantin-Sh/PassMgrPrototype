@@ -4,6 +4,7 @@ use argon2::{
     Argon2, Params, Version,
 };
 use blake2::{digest::consts::U16, Blake2b, Digest};
+use crystals_dilithium::dilithium2;
 
 type Blake2b128 = Blake2b<U16>;
 
@@ -23,6 +24,7 @@ pub struct MasterKeys {
     pub xchacha20_key: [u8; 32],
     pub ntrup1277_seed: [u8; 64],
     pub kyber1024_seed: [u8; 84],
+    pub dilithium_seed: [u8; 32],
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +84,11 @@ impl MasterKeys {
                                             entropy,
                                             CipherOption::Kyber1024,
                                         )?, */
+            dilithium_seed: Self::derive_quantum_seed::<32>(
+                &argon2,
+                entropy,
+                CipherOption::Dilithium,
+            )?,
         })
     }
 
@@ -140,6 +147,7 @@ impl MasterKeys {
             CipherOption::BelT => &self.belt_key,
             CipherOption::Camellia => &self.camellia_key,
             CipherOption::CAST6 => &self.cast6_key,
+            CipherOption::Dilithium => &self.dilithium_seed,
             CipherOption::Kuznyechik => &self.kuznyechik_key,
             CipherOption::Kyber1024 => &self.kyber1024_seed,
             CipherOption::NTRUP1277 => &self.ntrup1277_seed,
@@ -169,6 +177,19 @@ impl MasterKeys {
             .map_err(|e| KeyDerivationError::Argon2Error(e.to_string()))?;
 
         Ok(output)
+    }
+}
+
+pub struct AssymetricKeypair {
+    pub dilithium_keypair: dilithium2::Keypair,
+}
+
+impl AssymetricKeypair {
+    pub fn generate_dilithium2(seed: &[u8; 32]) -> Self {
+        let keypair = dilithium2::Keypair::generate(Some(seed));
+        Self {
+            dilithium_keypair: keypair,
+        }
     }
 }
 

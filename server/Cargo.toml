@@ -8,6 +8,7 @@ tonic = { version = "0.12.2", features = ["transport", "codegen", "tls"] }
 
 tokio = { version = "1", features = ["full"] }
 
+crypto = { path = "../crypto" }
 storage = { path = "../storage" }
 passmgr-rpc = { path = "../rpc" }
 anyhow = "1.0"
@@ -16,6 +17,7 @@ time = "0.3"
 
 tokio-stream = { version = "0.1", features = ["net"] }
 
+crystals-dilithium.workspace = true
 dirs.workspace = true
 futures.workspace = true
 prost.workspace = true

@@ -26,4 +26,5 @@ serpent = "0.5"
 speck-cipher = "0.0.1"
 twofish = "0.7"
 
+crystals-dilithium.workspace = true
 thiserror.workspace = true

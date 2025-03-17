@@ -1,10 +1,12 @@
 use crypto::UserId;
+use crystals_dilithium::dilithium2;
 use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
 use passmgr_rpc::rpc_passmgr::{
-    AuthRequest, AuthResponse, CloseRequest, CloseResponse, DeleteAllRequest, DeleteByIdRequest,
-    DeleteResponse, GetAllRequest, GetByIdRequest, GetListRequest, OneRecordResponse, Record,
-    RecordId, RecordListResponse, RecordsResponse, RegisterRequest, RegisterResponse,
-    SetOneRequest, SetOneResponse, SetRecordsRequest, SetRecordsResponse,
+    AuthChallengeRequest, AuthChallengeResponse, AuthRequest, AuthResponse, CloseRequest,
+    CloseResponse, DeleteAllRequest, DeleteByIdRequest, DeleteResponse, GetAllRequest,
+    GetByIdRequest, GetListRequest, OneRecordResponse, Record, RecordId, RecordListResponse,
+    RecordsResponse, RegisterRequest, RegisterResponse, SetOneRequest, SetOneResponse,
+    SetRecordsRequest, SetRecordsResponse,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,8 +95,13 @@ impl RpcPassmgr for PassmgrService {
             return Err(Status::already_exists("User already registered"));
         }
 
+        // TODO remove
+        // self.auth_db
+        //     .insert(user_id.to_vec(), req.server_key.as_slice())
+        //     .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
+
         self.auth_db
-            .insert(user_id.to_vec(), req.server_key.as_slice())
+            .insert(user_id.to_vec(), req.pub_key.as_slice())
             .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
 
         let hex_id = user_id.iter().fold(String::new(), |mut acc, b| {
@@ -110,6 +117,28 @@ impl RpcPassmgr for PassmgrService {
         Ok(Response::new(RegisterResponse { success: true }))
     }
 
+    async fn auth_challenge(
+        &self,
+        request: Request<AuthChallengeRequest>,
+    ) -> Result<Response<AuthChallengeResponse>, Status> {
+        let req = request.into_inner();
+        let user_id: UserId = req
+            .user_id
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
+
+        let challenge = Uuid::new_v4().as_bytes().to_vec();
+
+        // Store challenge in auth_db with key "challenge_{user_id}"
+        let challenge_key = [b"challenge_".as_ref(), &user_id[..]].concat();
+        self.auth_db
+            .insert(challenge_key, &*challenge)
+            .map_err(|e| Status::internal(format!("Failed to store challenge: {}", e)))?;
+
+        Ok(Response::new(AuthChallengeResponse { challenge }))
+    }
+
     async fn authenticate(
         &self,
         request: Request<AuthRequest>,
@@ -121,19 +150,40 @@ impl RpcPassmgr for PassmgrService {
             .try_into()
             .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
 
-        let server_key = self
+        // Retrieve and remove the stored challenge
+        let challenge_key = [b"challenge_".as_ref(), &user_id[..]].concat();
+        let challenge = self
+            .auth_db
+            .get(&challenge_key)
+            .map_err(|e| Status::internal(format!("Failed to retrieve challenge: {}", e)))?
+            .ok_or_else(|| Status::unauthenticated("No challenge found for user"))?;
+        self.auth_db
+            .remove(&challenge_key)
+            .map_err(|e| Status::internal(format!("Failed to remove challenge: {}", e)))?;
+
+        // Fetch the user's public key
+        let public_key_bytes = self
             .auth_db
             .get(user_id.to_vec())
             .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
             .ok_or_else(|| Status::not_found("User not found"))?;
 
-        if server_key != req.server_key {
-            return Err(Status::unauthenticated("Invalid server key"));
+        // Deserialize the public key
+        let public_key = dilithium2::PublicKey::from_bytes(&public_key_bytes);
+        // .map_err(|e| Status::internal(format!("Failed to parse public key: {}", e)))?;
+
+        // Verify the signature
+        let is_valid = public_key.verify(&challenge, &req.challenge_signature);
+        // .map_err(|e| Status::internal(format!("Signature verification failed: {}", e)))?;
+
+        if !is_valid {
+            return Err(Status::unauthenticated("Invalid challenge signature"));
         }
 
+         // TODO need to create auth token using Dilithium
+        // Generate auth token (existing code)
         let auth_token = Uuid::new_v4().to_string();
         let expiry = Instant::now() + Duration::from_secs(3600);
-
         self.sessions
             .lock()
             .map_err(|_| Status::internal("Failed to update sessions"))?
