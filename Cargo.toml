@@ -8,6 +8,11 @@ members = [
     "passmgr-cli",
     "passmgr-gui",
 ]
+exclude = [
+    "consensus/raft-kv-sledstore-grpc",
+    "consensus/sledstore",
+]
+
 resolver = "2"
 
 [workspace.dependencies]
