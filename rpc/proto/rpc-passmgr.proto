@@ -4,9 +4,8 @@ package rpc_passmgr;
 
 service RpcPassmgr {
   rpc Register (RegisterRequest) returns (RegisterResponse);
-  rpc AuthChallenge (AuthChallengeRequest) returns (AuthChallengeResponse);
-  rpc Authenticate (AuthRequest) returns (AuthResponse);
-  rpc CloseSession (CloseRequest) returns (CloseResponse);
+  
+  // Remove AuthChallenge and Authenticate as they're no longer needed
   
   rpc GetList (GetListRequest) returns (RecordListResponse);
   rpc GetAll (GetAllRequest) returns (RecordsResponse);
@@ -20,8 +19,7 @@ service RpcPassmgr {
 }
 
 message RegisterRequest {
-  bytes user_id = 1; // 
-  bytes server_key = 2; // 32 bytes
+  bytes user_id = 1;
   bytes pub_key = 3;
 }
 
@@ -29,44 +27,24 @@ message RegisterResponse {
   bool success = 1;
 }
 
-message AuthRequest {
+// The AuthSignature message is used for all authenticated requests
+message AuthSignature {
   bytes user_id = 1;
-  bytes challenge_signature = 2;
+  uint64 timestamp = 2;     // Unix timestamp in seconds
+  bytes signature = 3;      // Dilithium signature of [timestamp || request_data]
 }
-
-message AuthResponse {
-  string auth_token = 1;
-}
-
-message AuthChallengeRequest {
-  bytes user_id = 1;
-}
-
-message AuthChallengeResponse {
-  bytes challenge = 1;
-}
-
-message CloseRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
-}
-
-message CloseResponse {}
 
 message GetListRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
+  AuthSignature auth = 1;
 }
 
 message GetAllRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
+  AuthSignature auth = 1;
 }
 
 message GetByIdRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
-  uint64 cipher_record_id = 3;
+  AuthSignature auth = 1;
+  uint64 cipher_record_id = 2;
 }
 
 message Record {
@@ -77,9 +55,9 @@ message Record {
 }
 
 message RecordID {
-    uint64 id = 1;
-    uint64 ver = 2;
-    bytes user_id = 3;
+  uint64 id = 1;
+  uint64 ver = 2;
+  bytes user_id = 3;
 }
 
 message RecordListResponse {
@@ -90,36 +68,31 @@ message RecordsResponse {
   repeated Record records = 1;
 }
 
-
 message OneRecordResponse {
   Record record = 1;
 }
 
 message DeleteAllRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
+  AuthSignature auth = 1;
 }
 
 message DeleteByIdRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
-  uint64 record_id = 3;
+  AuthSignature auth = 1;
+  uint64 record_id = 2;
 }
 
 message DeleteResponse {}
 
 message SetOneRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
-  Record record = 3;
+  AuthSignature auth = 1;
+  Record record = 2;
 }
 
 message SetOneResponse {}
 
 message SetRecordsRequest {
-  bytes user_id = 1;
-  string auth_token = 2;
-  repeated Record records = 3;
+  AuthSignature auth = 1;
+  repeated Record records = 2;
 }
 
 message SetRecordsResponse {}

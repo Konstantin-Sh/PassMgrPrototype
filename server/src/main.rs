@@ -2,8 +2,7 @@ use crypto::UserId;
 use crystals_dilithium::dilithium2;
 use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
 use passmgr_rpc::rpc_passmgr::{
-    AuthChallengeRequest, AuthChallengeResponse, AuthRequest, AuthResponse, CloseRequest,
-    CloseResponse, DeleteAllRequest, DeleteByIdRequest, DeleteResponse, GetAllRequest,
+    AuthSignature, DeleteAllRequest, DeleteByIdRequest, DeleteResponse, GetAllRequest,
     GetByIdRequest, GetListRequest, OneRecordResponse, Record, RecordId, RecordListResponse,
     RecordsResponse, RegisterRequest, RegisterResponse, SetOneRequest, SetOneResponse,
     SetRecordsRequest, SetRecordsResponse,
@@ -11,19 +10,16 @@ use passmgr_rpc::rpc_passmgr::{
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use storage::db::Storage;
 use storage::error::StorageError;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-// pub mod passmgr {
-//     tonic::include_proto!("passmgr.server");
-// }
 
 struct PassmgrService {
     auth_db: sled::Db,
     data_dir: PathBuf,
-    sessions: Mutex<HashMap<String, (UserId, Instant)>>,
+    // Store last timestamp for each user to ensure monotonicity
+    last_timestamps: Mutex<HashMap<UserId, u64>>,
 }
 
 impl PassmgrService {
@@ -34,32 +30,77 @@ impl PassmgrService {
         Ok(Self {
             auth_db,
             data_dir,
-            sessions: Mutex::new(HashMap::new()),
+            last_timestamps: Mutex::new(HashMap::new()),
         })
     }
 
-    fn validate_session(&self, auth_token: &str) -> Result<UserId, Status> {
-        let sessions = self
-            .sessions
+    fn validate_auth<T>(&self, auth: &AuthSignature, request_data: &T) -> Result<UserId, Status>
+    where
+        T: prost::Message,
+    {
+        let user_id: UserId = auth
+            .user_id
+            .as_slice()
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
+
+        // Get public key
+        let public_key_bytes = self
+            .auth_db
+            .get(user_id.to_vec())
+            .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
+            .ok_or_else(|| Status::not_found("User not found"))?;
+
+        let public_key = dilithium2::PublicKey::from_bytes(&public_key_bytes);
+
+        // Check timestamp monotonicity
+        let mut timestamps = self
+            .last_timestamps
             .lock()
-            .map_err(|_| Status::internal("Failed to access sessions"))?;
+            .map_err(|_| Status::internal("Failed to access timestamps"))?;
 
-        let (user_id, expiry) = sessions
-            .get(auth_token)
-            .ok_or_else(|| Status::unauthenticated("Invalid or expired session"))?;
-
-        if *expiry < Instant::now() {
-            // Remove expired session
-            drop(sessions);
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| Status::internal("Failed to access sessions"))?;
-            sessions.remove(auth_token);
-            return Err(Status::unauthenticated("Session expired"));
+        let last_timestamp = timestamps.get(&user_id).copied().unwrap_or(0);
+        if auth.timestamp <= last_timestamp {
+            return Err(Status::invalid_argument(
+                "Timestamp must be strictly greater than the last one",
+            ));
         }
 
-        Ok(*user_id)
+        // Verify current time is within reasonable bounds (5 minutes)
+        let time_duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| Status::internal("System time error"))?;
+
+        let current_time =
+            time_duration.as_secs() * 1_000_000_000 + time_duration.subsec_nanos() as u64;
+        if auth.timestamp > current_time + 300_000_000_000 {
+            return Err(Status::invalid_argument(
+                "Timestamp is too far in the future",
+            ));
+        }
+
+        // Verify signature
+        let mut sign_data = Vec::new();
+        sign_data.extend_from_slice(&auth.timestamp.to_be_bytes());
+        // TODO Debug and implement signuture for more request data
+        //println!("timestamp {:?}",sign_data);
+        // Encode request data
+        // let mut request_bytes = Vec::new();
+        // request_data
+        //     .encode(&mut request_bytes)
+        //     .map_err(|e| Status::internal(format!("Failed to encode request: {}", e)))?;
+        // sign_data.extend_from_slice(&request_bytes);
+        // println!("all {:?}",sign_data);
+
+        let is_valid = public_key.verify(&sign_data, &auth.signature);
+        if !is_valid {
+            return Err(Status::unauthenticated("Invalid signature"));
+        }
+
+        // Update last timestamp
+        timestamps.insert(user_id, auth.timestamp);
+
+        Ok(user_id)
     }
 
     fn get_user_storage(&self, user_id: UserId) -> Result<Storage, Status> {
@@ -95,11 +136,6 @@ impl RpcPassmgr for PassmgrService {
             return Err(Status::already_exists("User already registered"));
         }
 
-        // TODO remove
-        // self.auth_db
-        //     .insert(user_id.to_vec(), req.server_key.as_slice())
-        //     .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
-
         self.auth_db
             .insert(user_id.to_vec(), req.pub_key.as_slice())
             .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
@@ -117,106 +153,24 @@ impl RpcPassmgr for PassmgrService {
         Ok(Response::new(RegisterResponse { success: true }))
     }
 
-    async fn auth_challenge(
-        &self,
-        request: Request<AuthChallengeRequest>,
-    ) -> Result<Response<AuthChallengeResponse>, Status> {
-        let req = request.into_inner();
-        let user_id: UserId = req
-            .user_id
-            .as_slice()
-            .try_into()
-            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
-
-        let challenge = Uuid::new_v4().as_bytes().to_vec();
-
-        // Store challenge in auth_db with key "challenge_{user_id}"
-        let challenge_key = [b"challenge_".as_ref(), &user_id[..]].concat();
-        self.auth_db
-            .insert(challenge_key, &*challenge)
-            .map_err(|e| Status::internal(format!("Failed to store challenge: {}", e)))?;
-
-        Ok(Response::new(AuthChallengeResponse { challenge }))
-    }
-
-    async fn authenticate(
-        &self,
-        request: Request<AuthRequest>,
-    ) -> Result<Response<AuthResponse>, Status> {
-        let req = request.into_inner();
-        let user_id: UserId = req
-            .user_id
-            .as_slice()
-            .try_into()
-            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
-
-        // Retrieve and remove the stored challenge
-        let challenge_key = [b"challenge_".as_ref(), &user_id[..]].concat();
-        let challenge = self
-            .auth_db
-            .get(&challenge_key)
-            .map_err(|e| Status::internal(format!("Failed to retrieve challenge: {}", e)))?
-            .ok_or_else(|| Status::unauthenticated("No challenge found for user"))?;
-        self.auth_db
-            .remove(&challenge_key)
-            .map_err(|e| Status::internal(format!("Failed to remove challenge: {}", e)))?;
-
-        // Fetch the user's public key
-        let public_key_bytes = self
-            .auth_db
-            .get(user_id.to_vec())
-            .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
-            .ok_or_else(|| Status::not_found("User not found"))?;
-
-        // Deserialize the public key
-        let public_key = dilithium2::PublicKey::from_bytes(&public_key_bytes);
-        // .map_err(|e| Status::internal(format!("Failed to parse public key: {}", e)))?;
-
-        // Verify the signature
-        let is_valid = public_key.verify(&challenge, &req.challenge_signature);
-        // .map_err(|e| Status::internal(format!("Signature verification failed: {}", e)))?;
-
-        if !is_valid {
-            return Err(Status::unauthenticated("Invalid challenge signature"));
-        }
-
-         // TODO need to create auth token using Dilithium
-        // Generate auth token (existing code)
-        let auth_token = Uuid::new_v4().to_string();
-        let expiry = Instant::now() + Duration::from_secs(3600);
-        self.sessions
-            .lock()
-            .map_err(|_| Status::internal("Failed to update sessions"))?
-            .insert(auth_token.clone(), (user_id, expiry));
-
-        Ok(Response::new(AuthResponse { auth_token }))
-    }
-
-    async fn close_session(
-        &self,
-        request: Request<CloseRequest>,
-    ) -> Result<Response<CloseResponse>, Status> {
-        let req = request.into_inner();
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|_| Status::internal("Failed to access sessions"))?;
-        sessions.remove(&req.auth_token);
-        Ok(Response::new(CloseResponse {}))
-    }
-
     async fn get_list(
         &self,
         request: Request<GetListRequest>,
     ) -> Result<Response<RecordListResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         let records = storage
             .list_ids_with_metadata()
             .map_err(|e| Status::internal(e.to_string()))?;
-        // TODO research about user_id from DB
+
         let record_i_ds = records
             .into_iter()
             .map(|(id, ver, _)| RecordId {
@@ -234,7 +188,13 @@ impl RpcPassmgr for PassmgrService {
         request: Request<GetByIdRequest>,
     ) -> Result<Response<OneRecordResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         let record = storage.get(req.cipher_record_id).map_err(|e| match e {
@@ -257,7 +217,13 @@ impl RpcPassmgr for PassmgrService {
         request: Request<GetAllRequest>,
     ) -> Result<Response<RecordsResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         let record_ids = storage
@@ -285,7 +251,13 @@ impl RpcPassmgr for PassmgrService {
         request: Request<SetOneRequest>,
     ) -> Result<Response<SetOneResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         let record = req
@@ -311,7 +283,13 @@ impl RpcPassmgr for PassmgrService {
         request: Request<SetRecordsRequest>,
     ) -> Result<Response<SetRecordsResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         for record in req.records {
@@ -334,7 +312,13 @@ impl RpcPassmgr for PassmgrService {
         request: Request<DeleteByIdRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
 
         storage
@@ -343,12 +327,19 @@ impl RpcPassmgr for PassmgrService {
 
         Ok(Response::new(DeleteResponse {}))
     }
+
     async fn delete_all(
         &self,
         request: Request<DeleteAllRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
-        let user_id = self.validate_session(&req.auth_token)?;
+        let user_id = self.validate_auth(
+            req.auth
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
+            &req,
+        )?;
+
         let storage = self.get_user_storage(user_id)?;
         let records = storage
             .list_ids()
@@ -360,7 +351,6 @@ impl RpcPassmgr for PassmgrService {
         }
         Ok(Response::new(DeleteResponse {}))
     }
-    // Implement other methods similarly...
 }
 
 #[tokio::main]
