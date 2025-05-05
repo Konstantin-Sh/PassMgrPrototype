@@ -38,8 +38,10 @@ pub enum KeyDerivationError {
 impl MasterKeys {
     // Argon2id parameters
     const MEMORY_SIZE: u32 = 64 * 1024; // 64MB
-    const TIME_COST: u32 = 3;
-    const PARALLELISM: u32 = 4;
+    // was = 3
+    const TIME_COST: u32 = 1;
+    // was = 4
+    const PARALLELISM: u32 = 1;
 
     /// Derive master keys from BIP39 entropy using Argon2id
     pub fn from_entropy(entropy: &[u8]) -> Result<Self, KeyDerivationError> {
