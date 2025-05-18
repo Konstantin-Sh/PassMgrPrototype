@@ -21,8 +21,50 @@ use storage::{
     structures::{Atributes, CipherRecord, Item, Record},
     user_db::UserDb,
 };
+use thiserror::Error;
 use tonic::transport::Channel;
 use uuid::timestamp;
+
+// Define a custom error type with thiserror
+#[derive(Debug, Error)]
+pub enum PassmgrError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("BIP39 error: {0}")]
+    Bip39(#[from] Bip39Error),
+
+    #[error("Parse error: {0}")]
+    Parse(#[from] std::num::ParseIntError),
+
+    #[error("Tonic transport error: {0}")]
+    TonicTransport(#[from] tonic::transport::Error),
+
+    #[error("Tonic status error: {0}")]
+    TonicStatus(#[from] tonic::Status),
+
+    #[error("User database error: {0}")]
+    UserDb(String),
+
+    #[error("Server error: {0}")]
+    Server(String),
+
+    #[error("{0}")]
+    Generic(String),
+}
+
+// For convenience in converting string errors
+impl From<String> for PassmgrError {
+    fn from(s: String) -> Self {
+        PassmgrError::Generic(s)
+    }
+}
+
+impl From<&str> for PassmgrError {
+    fn from(s: &str) -> Self {
+        PassmgrError::Generic(s.to_string())
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "passmgr-cli")]
@@ -72,18 +114,18 @@ struct ServerSession {
 }
 
 impl ServerSession {
-    fn sign_request<T>(&self, request_data: &T) -> Result<AuthSignature, Box<dyn std::error::Error>>
+    fn sign_request<T>(&self, request_data: &T) -> Result<AuthSignature, PassmgrError>
     where
         T: prost::Message,
     {
         let keypair = match &self.key_pairs {
             Some(pk) => &pk.dilithium_keypair,
-            None => return Err("No keypair found".into()),
+            None => return Err(PassmgrError::Server("No keypair found".into())),
         };
 
         let time_duration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| format!("System time error: {}", e))?;
+            .map_err(|e| PassmgrError::Generic(format!("System time error: {}", e)))?;
 
         let timestamp =
             time_duration.as_secs() * 1_000_000_000 + time_duration.subsec_nanos() as u64;
@@ -107,7 +149,7 @@ impl ServerSession {
     }
 }
 
-async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
+async fn interactive_mode() -> Result<(), PassmgrError> {
     let mut state = AppState::StartScreen;
     let mut server = ServerSession {
         client: None,
@@ -144,7 +186,8 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 ];
 
                 let user_db =
-                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
+                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)
+                        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
                 server.user_id = master_keys.user_id;
                 server.key_pairs = Some(AssymetricKeypair::generate_dilithium2(
                     &master_keys.dilithium_seed,
@@ -179,7 +222,8 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
                 ];
 
                 let user_db =
-                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)?;
+                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)
+                        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
                 server.user_id = master_keys.user_id;
                 server.key_pairs = Some(AssymetricKeypair::generate_dilithium2(
                     &master_keys.dilithium_seed,
@@ -227,7 +271,10 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
             AppState::NewRecordScreen(session, mut record) => {
                 record = build_record(record)?;
 
-                let record_id = session.user_db.create(record.clone())?;
+                let record_id = session
+                    .user_db
+                    .create(record.clone())
+                    .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
                 println!("Created new record with ID: {}", record_id);
                 state = AppState::WorkScreen(session);
             }
@@ -284,7 +331,7 @@ async fn interactive_mode() -> Result<(), Box<dyn std::error::Error>> {
 
 // Helper functions
 
-fn prompt(message: &str) -> io::Result<String> {
+fn prompt(message: &str) -> Result<String, PassmgrError> {
     print!("{}", message);
     io::stdout().flush()?;
     let mut input = String::new();
@@ -292,12 +339,12 @@ fn prompt(message: &str) -> io::Result<String> {
     Ok(input.trim().to_string())
 }
 
-fn confirm_n(message: &str) -> io::Result<bool> {
+fn confirm_n(message: &str) -> Result<bool, PassmgrError> {
     let input = prompt(message)?.to_lowercase();
     Ok(input == "y" || input == "yes")
 }
 
-fn confirm_y(message: &str) -> io::Result<bool> {
+fn confirm_y(message: &str) -> Result<bool, PassmgrError> {
     let input = prompt(message)?.to_lowercase();
     if input.to_lowercase().starts_with('n') {
         Ok(false)
@@ -313,7 +360,7 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-fn confirm_db_path() -> io::Result<PathBuf> {
+fn confirm_db_path() -> Result<PathBuf, PassmgrError> {
     let default_path = dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("passmgr_db");
@@ -328,13 +375,12 @@ fn confirm_db_path() -> io::Result<PathBuf> {
     }
 }
 
-fn create_master_keys(mnemonic: &str) -> Result<MasterKeys, Bip39Error> {
+fn create_master_keys(mnemonic: &str) -> Result<MasterKeys, PassmgrError> {
     let bip39 = Bip39::from_mnemonic(mnemonic)?;
-    MasterKeys::from_entropy(&bip39.get_entropy())
-        .map_err(|e| Bip39Error::PassmgrCliError(e.to_string()))
+    MasterKeys::from_entropy(&bip39.get_entropy()).map_err(|e| PassmgrError::Generic(e.to_string()))
 }
 
-fn select_entropy_strength() -> io::Result<u32> {
+fn select_entropy_strength() -> Result<u32, PassmgrError> {
     println!("Select entropy strength:");
     println!("5. only 256 bits (24 words)");
 
@@ -349,8 +395,10 @@ fn select_entropy_strength() -> io::Result<u32> {
 
 // Record management functions
 
-fn list_records(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
-    let records = user_db.list_records()?;
+fn list_records(user_db: &UserDb) -> Result<(), PassmgrError> {
+    let records = user_db
+        .list_records()
+        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
     println!("\nStored Record IDs:");
     for id in records {
         println!("- {}", id);
@@ -358,9 +406,11 @@ fn list_records(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn show_record(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
+fn show_record(user_db: &UserDb) -> Result<(), PassmgrError> {
     let record_id = prompt("Enter record ID: ")?;
-    let record = user_db.read(record_id.parse()?)?;
+    let record = user_db
+        .read(record_id.parse()?)
+        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
 
     println!("\nRecord Details:");
     for item in record.fields {
@@ -374,9 +424,11 @@ fn show_record(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn show_password(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
+fn show_password(user_db: &UserDb) -> Result<(), PassmgrError> {
     let record_id = prompt("Enter record ID: ")?;
-    let record = user_db.read(record_id.parse()?)?;
+    let record = user_db
+        .read(record_id.parse()?)
+        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
 
     println!("\nRecord Hidden Details:");
     for item in record.fields {
@@ -389,14 +441,16 @@ fn show_password(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn delete_record(user_db: &UserDb) -> Result<(), Box<dyn std::error::Error>> {
+fn delete_record(user_db: &UserDb) -> Result<(), PassmgrError> {
     let record_id = prompt("Enter record ID to delete: ")?;
-    user_db.delete(record_id.parse()?)?;
+    user_db
+        .delete(record_id.parse()?)
+        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
     println!("Record deleted successfully");
     Ok(())
 }
 
-fn build_record(mut record: Record) -> Result<Record, Box<dyn std::error::Error>> {
+fn build_record(mut record: Record) -> Result<Record, PassmgrError> {
     for title in &["Name", "URL", "Login", "Password", "Note"] {
         if confirm_y(&format!("Add {} field? [Y/n] ", title))? {
             let value = prompt(&format!("Enter {}: ", title))?;
@@ -452,7 +506,7 @@ fn format_attributes(attributes: &[Atributes]) -> String {
 
 // Server communication
 
-async fn connect_to_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+async fn connect_to_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     let channel = tonic::transport::Channel::from_static("http://127.0.0.1:50051")
         .connect()
         .await?;
@@ -460,14 +514,14 @@ async fn connect_to_server(server: &mut ServerSession) -> Result<(), Box<dyn std
     Ok(())
 }
 
-async fn register_on_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+async fn register_on_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     if server.user_id == [0; 32] {
-        return Err("Uninitialized user ID".into());
+        return Err(PassmgrError::Server("Uninitialized user ID".into()));
     }
 
     let pub_key = match &server.key_pairs {
         Some(pk) => &pk.dilithium_keypair.public,
-        None => return Err("No public key found".into()),
+        None => return Err(PassmgrError::Server("No public key found".into())),
     };
 
     let request = RegisterRequest {
@@ -479,18 +533,18 @@ async fn register_on_server(server: &mut ServerSession) -> Result<(), Box<dyn st
         Some(client) => {
             let response = client.register(request).await?;
             if !response.into_inner().success {
-                return Err("Server registration failed".into());
+                return Err(PassmgrError::Server("Server registration failed".into()));
             }
             Ok(())
         }
-        None => Err("Not connected to server".into()),
+        None => Err(PassmgrError::Server("Not connected to server".into())),
     }
 }
 
 async fn sync_with_server(
     server: &mut ServerSession,
     session: &UserSession,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), PassmgrError> {
     // 1. Create request for get_all
     let request = GetAllRequest { auth: None };
     let auth = server.sign_request(&request)?;
@@ -500,7 +554,7 @@ async fn sync_with_server(
     let server_records = {
         let client = match &mut server.client {
             Some(client) => client,
-            None => return Err("Not connected to server".into()),
+            None => return Err(PassmgrError::Server("Not connected to server".into())),
         };
 
         client
@@ -511,29 +565,20 @@ async fn sync_with_server(
     };
 
     // 3. Compare with local records
-    let local_records = session.user_db.list_records()?;
+    let local_records = session
+        .user_db
+        .list_records()
+        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
 
     // 4. Conflict resolution
     for server_record in server_records {
         let local_exists = local_records.contains(&server_record.id);
         if !local_exists {
             // Create missing record locally
-            session.user_db.storage.set(
-                server_record.id,
-                &CipherRecord {
-                    user_id: server.user_id,
-                    cipher_record_id: server_record.id,
-                    ver: server_record.ver,
-                    cipher_options: vec![], // Using the same cipher options as local DB
-                    data: server_record.data,
-                },
-            )?;
-        } else {
-            // Check if server version is newer
-            let local_record = session.user_db.storage.get(server_record.id)?;
-            if server_record.ver > local_record.ver {
-                // Update local record
-                session.user_db.storage.up(
+            session
+                .user_db
+                .storage
+                .set(
                     server_record.id,
                     &CipherRecord {
                         user_id: server.user_id,
@@ -542,14 +587,42 @@ async fn sync_with_server(
                         cipher_options: vec![], // Using the same cipher options as local DB
                         data: server_record.data,
                     },
-                )?;
+                )
+                .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
+        } else {
+            // Check if server version is newer
+            let local_record = session
+                .user_db
+                .storage
+                .get(server_record.id)
+                .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
+            if server_record.ver > local_record.ver {
+                // Update local record
+                session
+                    .user_db
+                    .storage
+                    .up(
+                        server_record.id,
+                        &CipherRecord {
+                            user_id: server.user_id,
+                            cipher_record_id: server_record.id,
+                            ver: server_record.ver,
+                            cipher_options: vec![], // Using the same cipher options as local DB
+                            data: server_record.data,
+                        },
+                    )
+                    .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
             }
         }
     }
 
     // 5. Push local changes
     for local_id in local_records {
-        let local_record = session.user_db.storage.get(local_id)?;
+        let local_record = session
+            .user_db
+            .storage
+            .get(local_id)
+            .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
         let record = passmgr_rpc::rpc_passmgr::Record {
             id: local_id,
             ver: local_record.ver,
@@ -570,7 +643,7 @@ async fn sync_with_server(
         // Get client reference only for this operation
         let client = match &mut server.client {
             Some(client) => client,
-            None => return Err("Not connected to server".into()),
+            None => return Err(PassmgrError::Server("Not connected to server".into())),
         };
 
         client.set_one(request_with_auth).await?;
@@ -579,30 +652,28 @@ async fn sync_with_server(
     Ok(())
 }
 
-async fn delete_all_on_server(
-    server: &mut ServerSession,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_all_on_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     let request = DeleteAllRequest { auth: None };
     let auth = server.sign_request(&request)?;
     let request_with_auth = DeleteAllRequest { auth: Some(auth) };
 
     let client = match &mut server.client {
         Some(client) => client,
-        None => return Err("Not connected to server".into()),
+        None => return Err(PassmgrError::Server("Not connected to server".into())),
     };
 
     client.delete_all(request_with_auth).await?;
     Ok(())
 }
 
-async fn get_all_ids_server(server: &mut ServerSession) -> Result<(), Box<dyn std::error::Error>> {
+async fn get_all_ids_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     let request = GetListRequest { auth: None };
     let auth = server.sign_request(&request)?;
     let request_with_auth = GetListRequest { auth: Some(auth) };
 
     let client = match &mut server.client {
         Some(client) => client,
-        None => return Err("Not connected to server".into()),
+        None => return Err(PassmgrError::Server("Not connected to server".into())),
     };
 
     let response = client.get_list(request_with_auth).await?;
