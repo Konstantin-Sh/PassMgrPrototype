@@ -98,6 +98,7 @@ enum AppState<'a> {
     StartScreen,
     OpenDbScreen,
     CreateNewScreen,
+    RestoreDbScreen,
     WorkScreen(&'a UserSession),
     ServerStuff(&'a UserSession),
     NewRecordScreen(&'a UserSession, Record),
@@ -163,11 +164,13 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
                 println!("\nPassword Manager - Main Menu");
                 println!("1. Open existing database");
                 println!("2. Create new database");
+                println!("3. Restore database from server");
                 println!("0. Exit");
 
                 match prompt("Choose option: ")?.as_str() {
                     "1" => state = AppState::OpenDbScreen,
                     "2" => state = AppState::CreateNewScreen,
+                    "3" => state = AppState::RestoreDbScreen,
                     "0" => break,
                     _ => println!("Invalid option"),
                 }
@@ -231,6 +234,43 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
 
                 let user_session_owned = UserSession { user_db };
                 let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
+
+                state = AppState::WorkScreen(user_session);
+            }
+
+            AppState::RestoreDbScreen => {
+                let mnemonic = prompt("Enter seed phrase: ")?;
+                let db_path = confirm_db_path()?;
+                let master_keys_owned = create_master_keys(&mnemonic)?;
+                let master_keys: &'static MasterKeys = Box::leak(Box::new(master_keys_owned));
+
+                let cipher_chain = vec![
+                    CipherOption::AES256,
+                    CipherOption::XChaCha20,
+                    CipherOption::Kuznyechik,
+                ];
+
+                let user_db =
+                    UserDb::new(&db_path, master_keys.user_id, &master_keys, cipher_chain)
+                        .map_err(|e| PassmgrError::UserDb(e.to_string()))?;
+                server.user_id = master_keys.user_id;
+                server.key_pairs = Some(AssymetricKeypair::generate_dilithium2(
+                    &master_keys.dilithium_seed,
+                ));
+
+                let user_session_owned = UserSession { user_db };
+                let user_session: &'static UserSession = Box::leak(Box::new(user_session_owned));
+
+                // Restore from server
+                if server.client.is_none() {
+                    connect_to_server(&mut server).await?;
+                    println!("Connected successfully!");
+                } else {
+                    println!("Already connected!");
+                }
+
+                sync_with_server(&mut server, user_session).await?;
+                println!("Sync completed!");
 
                 state = AppState::WorkScreen(user_session);
             }
