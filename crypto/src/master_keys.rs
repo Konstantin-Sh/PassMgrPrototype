@@ -38,7 +38,7 @@ pub enum KeyDerivationError {
 impl MasterKeys {
     // Argon2id parameters
     const MEMORY_SIZE: u32 = 64 * 1024; // 64MB
-    // was = 3
+                                        // was = 3
     const TIME_COST: u32 = 1;
     // was = 4
     const PARALLELISM: u32 = 1;

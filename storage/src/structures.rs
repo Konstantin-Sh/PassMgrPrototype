@@ -34,6 +34,7 @@ pub struct Record {
 pub struct DataBase {
     version: u64,
     timestamp: u64,
+    nonce: u64,
     records: Vec<Record>,
 }
 

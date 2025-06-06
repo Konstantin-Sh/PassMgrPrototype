@@ -13,13 +13,14 @@ storage = { path = "../storage" }
 passmgr-rpc = { path = "../rpc" }
 anyhow = "1.0"
 rand = "0.8"
-time = "0.3"
 
 tokio-stream = { version = "0.1", features = ["net"] }
 
+bincode.workspace = true
 crystals-dilithium.workspace = true
 dirs.workspace = true
 futures.workspace = true
 prost.workspace = true
+serde.workspace = true
 sled.workspace = true
 uuid.workspace = true

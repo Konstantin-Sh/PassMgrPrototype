@@ -4,13 +4,13 @@ package rpc_passmgr;
 
 service RpcPassmgr {
   rpc Register (RegisterRequest) returns (RegisterResponse);
-  
-  // Remove AuthChallenge and Authenticate as they're no longer needed
+
   
   rpc GetList (GetListRequest) returns (RecordListResponse);
   rpc GetAll (GetAllRequest) returns (RecordsResponse);
   rpc GetById (GetByIdRequest) returns (OneRecordResponse);
-  
+  rpc GetNonce (GetNonceRequest) returns (GetNonceResponse);
+
   rpc DeleteAll (DeleteAllRequest) returns (DeleteResponse);
   rpc DeleteById (DeleteByIdRequest) returns (DeleteResponse);
   
@@ -25,13 +25,22 @@ message RegisterRequest {
 
 message RegisterResponse {
   bool success = 1;
+  uint64 nonce = 2;
 }
 
 // The AuthSignature message is used for all authenticated requests
 message AuthSignature {
   bytes user_id = 1;
-  uint64 timestamp = 2;     // Unix timestamp in seconds
-  bytes signature = 3;      // Dilithium signature of [timestamp || request_data]
+  uint64 nonce = 2;
+  bytes signature = 3;      // Dilithium signature of [nonce || request_data]
+}
+
+message GetNonceRequest {
+  bytes user_id = 1;
+}
+
+message GetNonceResponse {
+  uint64 nonce = 1;
 }
 
 message GetListRequest {

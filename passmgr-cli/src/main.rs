@@ -6,16 +6,15 @@ use crypto::{
     structures::CipherOption,
     MasterKeys,
 };
+use passmgr_rpc::rpc_passmgr::GetNonceRequest;
 use passmgr_rpc::rpc_passmgr::{
     rpc_passmgr_client::RpcPassmgrClient, AuthSignature, DeleteAllRequest, DeleteByIdRequest,
     GetAllRequest, GetByIdRequest, GetListRequest, RegisterRequest, SetOneRequest,
     SetRecordsRequest,
 };
-use prost::Message;
 use std::{
     io::{self, Write},
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use storage::{
     structures::{Atributes, CipherRecord, Item, Record},
@@ -23,7 +22,6 @@ use storage::{
 };
 use thiserror::Error;
 use tonic::transport::Channel;
-use uuid::timestamp;
 
 // Define a custom error type with thiserror
 #[derive(Debug, Error)]
@@ -112,6 +110,7 @@ struct ServerSession {
     client: Option<RpcPassmgrClient<Channel>>,
     user_id: UserId,
     key_pairs: Option<AssymetricKeypair>,
+    nonce: u64,
 }
 
 impl ServerSession {
@@ -124,14 +123,8 @@ impl ServerSession {
             None => return Err(PassmgrError::Server("No keypair found".into())),
         };
 
-        let time_duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| PassmgrError::Generic(format!("System time error: {}", e)))?;
-
-        let timestamp =
-            time_duration.as_secs() * 1_000_000_000 + time_duration.subsec_nanos() as u64;
         let mut sign_data = Vec::new();
-        sign_data.extend_from_slice(&timestamp.to_be_bytes());
+        sign_data.extend_from_slice(&self.nonce.to_be_bytes());
         // TODO Debug and implement signuture for more request data
         // println!("timestamp {:?}",sign_data);
         // Encode request data
@@ -141,12 +134,15 @@ impl ServerSession {
         // sign_data.extend_from_slice(&request_bytes);
         // println!("all {:?}",sign_data);
         let signature = keypair.sign(&sign_data);
-
-        Ok(AuthSignature {
+        let auth_data = AuthSignature {
             user_id: self.user_id.to_vec(),
-            timestamp,
+            nonce: self.nonce,
             signature: signature.to_vec(),
-        })
+        };
+
+        let _ = self.nonce.wrapping_add(1);
+
+        Ok(auth_data)
     }
 }
 
@@ -156,6 +152,7 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
         client: None,
         user_id: [0; 32],
         key_pairs: None,
+        nonce: 0,
     };
 
     loop {
@@ -269,6 +266,8 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
                     println!("Already connected!");
                 }
 
+                server.nonce = get_nonce_from_server(&mut server).await?;
+
                 sync_with_server(&mut server, user_session).await?;
                 println!("Sync completed!");
 
@@ -335,6 +334,7 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
                         if server.client.is_none() {
                             connect_to_server(&mut server).await?;
                             println!("Connected successfully!");
+                            server.nonce = get_nonce_from_server(&mut server).await?;
                         } else {
                             println!("Already connected!");
                         }
@@ -572,10 +572,27 @@ async fn register_on_server(server: &mut ServerSession) -> Result<(), PassmgrErr
     match &mut server.client {
         Some(client) => {
             let response = client.register(request).await?;
-            if !response.into_inner().success {
+            let inner = response.into_inner();
+            if !inner.success {
                 return Err(PassmgrError::Server("Server registration failed".into()));
             }
+            server.nonce = inner.nonce;
+
             Ok(())
+        }
+        None => Err(PassmgrError::Server("Not connected to server".into())),
+    }
+}
+
+async fn get_nonce_from_server(server: &mut ServerSession) -> Result<u64, PassmgrError> {
+    let request = GetNonceRequest {
+        user_id: server.user_id.to_vec(),
+    };
+
+    match &mut server.client {
+        Some(client) => {
+            let response = client.get_nonce(request).await?;
+            Ok(response.into_inner().nonce)
         }
         None => Err(PassmgrError::Server("Not connected to server".into())),
     }

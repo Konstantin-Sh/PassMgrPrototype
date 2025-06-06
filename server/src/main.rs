@@ -1,16 +1,16 @@
+use bincode::{deserialize, serialize};
 use crypto::UserId;
 use crystals_dilithium::dilithium2;
 use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
 use passmgr_rpc::rpc_passmgr::{
     AuthSignature, DeleteAllRequest, DeleteByIdRequest, DeleteResponse, GetAllRequest,
-    GetByIdRequest, GetListRequest, OneRecordResponse, Record, RecordId, RecordListResponse,
-    RecordsResponse, RegisterRequest, RegisterResponse, SetOneRequest, SetOneResponse,
-    SetRecordsRequest, SetRecordsResponse,
+    GetByIdRequest, GetListRequest, GetNonceRequest, GetNonceResponse, OneRecordResponse, Record,
+    RecordId, RecordListResponse, RecordsResponse, RegisterRequest, RegisterResponse,
+    SetOneRequest, SetOneResponse, SetRecordsRequest, SetRecordsResponse,
 };
-use std::collections::HashMap;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 use storage::db::Storage;
 use storage::error::StorageError;
 use tonic::{Request, Response, Status};
@@ -18,8 +18,12 @@ use tonic::{Request, Response, Status};
 struct PassmgrService {
     auth_db: sled::Db,
     data_dir: PathBuf,
-    // Store last timestamp for each user to ensure monotonicity
-    last_timestamps: Mutex<HashMap<UserId, u64>>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct AuthEntry {
+    nonce: u64,
+    public_key: Vec<u8>,
 }
 
 impl PassmgrService {
@@ -27,11 +31,7 @@ impl PassmgrService {
         let auth_db = sled::open(auth_db_path)?;
         std::fs::create_dir_all(&data_dir)?;
 
-        Ok(Self {
-            auth_db,
-            data_dir,
-            last_timestamps: Mutex::new(HashMap::new()),
-        })
+        Ok(Self { auth_db, data_dir })
     }
 
     fn validate_auth<T>(&self, auth: &AuthSignature, request_data: &T) -> Result<UserId, Status>
@@ -44,44 +44,33 @@ impl PassmgrService {
             .try_into()
             .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
 
-        // Get public key
-        let public_key_bytes = self
+        // Retrieve AuthEntry
+        let auth_entry_bytes = self
             .auth_db
-            .get(user_id.to_vec())
+            .get(&user_id)
             .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
             .ok_or_else(|| Status::not_found("User not found"))?;
 
-        let public_key = dilithium2::PublicKey::from_bytes(&public_key_bytes);
+        let auth_entry: AuthEntry = deserialize(&auth_entry_bytes)
+            .map_err(|_| Status::internal("Auth entry deserialization failed"))?;
 
-        // Check timestamp monotonicity
-        let mut timestamps = self
-            .last_timestamps
-            .lock()
-            .map_err(|_| Status::internal("Failed to access timestamps"))?;
-
-        let last_timestamp = timestamps.get(&user_id).copied().unwrap_or(0);
-        if auth.timestamp <= last_timestamp {
-            return Err(Status::invalid_argument(
-                "Timestamp must be strictly greater than the last one",
-            ));
+        // Verify nonce
+        if auth.nonce != auth_entry.nonce {
+            return Err(Status::invalid_argument("Invalid nonce"));
         }
 
-        // Verify current time is within reasonable bounds (5 minutes)
-        let time_duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| Status::internal("System time error"))?;
+        // Increment and store new nonce
+        let _ = auth_entry.nonce.wrapping_add(1);
 
-        let current_time =
-            time_duration.as_secs() * 1_000_000_000 + time_duration.subsec_nanos() as u64;
-        if auth.timestamp > current_time + 300_000_000_000 {
-            return Err(Status::invalid_argument(
-                "Timestamp is too far in the future",
-            ));
-        }
+        self.auth_db
+            .insert(user_id.to_vec(), serialize(&auth_entry).unwrap())
+            .map_err(|e| Status::internal(format!("Failed to save nonce: {}", e)))?;
+
+        let public_key = dilithium2::PublicKey::from_bytes(&auth_entry.public_key);
 
         // Verify signature
         let mut sign_data = Vec::new();
-        sign_data.extend_from_slice(&auth.timestamp.to_be_bytes());
+        sign_data.extend_from_slice(&auth.nonce.to_be_bytes());
         // TODO Debug and implement signuture for more request data
         //println!("timestamp {:?}",sign_data);
         // Encode request data
@@ -96,9 +85,6 @@ impl PassmgrService {
         if !is_valid {
             return Err(Status::unauthenticated("Invalid signature"));
         }
-
-        // Update last timestamp
-        timestamps.insert(user_id, auth.timestamp);
 
         Ok(user_id)
     }
@@ -135,9 +121,14 @@ impl RpcPassmgr for PassmgrService {
         {
             return Err(Status::already_exists("User already registered"));
         }
+        let nonce: u64 = rand::thread_rng().gen();
+        let auth_entry = AuthEntry {
+            public_key: req.pub_key,
+            nonce,
+        };
 
         self.auth_db
-            .insert(user_id.to_vec(), req.pub_key.as_slice())
+            .insert(user_id.to_vec(), serialize(&auth_entry).unwrap())
             .map_err(|e| Status::internal(format!("Failed to register user: {}", e)))?;
 
         let hex_id = user_id.iter().fold(String::new(), |mut acc, b| {
@@ -150,7 +141,33 @@ impl RpcPassmgr for PassmgrService {
             Status::internal(format!("Failed to create user data directory: {}", e))
         })?;
 
-        Ok(Response::new(RegisterResponse { success: true }))
+        Ok(Response::new(RegisterResponse {
+            success: true,
+            nonce,
+        }))
+    }
+
+    async fn get_nonce(
+        &self,
+        request: Request<GetNonceRequest>,
+    ) -> Result<Response<GetNonceResponse>, Status> {
+        let req = request.into_inner();
+        let user_id: UserId = req.user_id[..]
+            .try_into()
+            .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
+
+        let auth_entry_bytes = self
+            .auth_db
+            .get(&user_id)
+            .map_err(|e| Status::internal(format!("Failed to retrieve user: {}", e)))?
+            .ok_or_else(|| Status::not_found("User not found"))?;
+
+        let auth_entry: AuthEntry = deserialize(&auth_entry_bytes)
+            .map_err(|_| Status::internal("Auth entry deserialization failed"))?;
+
+        Ok(Response::new(GetNonceResponse {
+            nonce: auth_entry.nonce,
+        }))
     }
 
     async fn get_list(
