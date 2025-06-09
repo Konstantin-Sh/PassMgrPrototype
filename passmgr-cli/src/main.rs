@@ -125,14 +125,14 @@ impl ServerSession {
 
         let mut sign_data = Vec::new();
         sign_data.extend_from_slice(&self.nonce.to_be_bytes());
-        // TODO Debug and implement signuture for more request data
-        // println!("timestamp {:?}",sign_data);
+
         // Encode request data
-        // let mut request_bytes = Vec::new();
-        // request_data.encode(&mut request_bytes)
-        //     .map_err(|e| format!("Failed to encode request: {}", e))?;
-        // sign_data.extend_from_slice(&request_bytes);
-        // println!("all {:?}",sign_data);
+        let mut request_bytes = Vec::new();
+        request_data
+            .encode(&mut request_bytes)
+            .map_err(|e| format!("Failed to encode request: {}", e))?;
+        sign_data.extend_from_slice(&request_bytes);
+
         let signature = keypair.sign(&sign_data);
         let auth_data = AuthSignature {
             user_id: self.user_id.to_vec(),

@@ -34,7 +34,11 @@ impl PassmgrService {
         Ok(Self { auth_db, data_dir })
     }
 
-    fn validate_auth<T>(&self, auth: &AuthSignature, request_data: &T) -> Result<UserId, Status>
+    fn validate_auth<T>(
+        &self,
+        auth: &AuthSignature,
+        request_without_auth: &T,
+    ) -> Result<UserId, Status>
     where
         T: prost::Message,
     {
@@ -68,18 +72,16 @@ impl PassmgrService {
 
         let public_key = dilithium2::PublicKey::from_bytes(&auth_entry.public_key);
 
-        // Verify signature
+        // Verify signature start
         let mut sign_data = Vec::new();
         sign_data.extend_from_slice(&auth.nonce.to_be_bytes());
-        // TODO Debug and implement signuture for more request data
-        //println!("timestamp {:?}",sign_data);
+
         // Encode request data
-        // let mut request_bytes = Vec::new();
-        // request_data
-        //     .encode(&mut request_bytes)
-        //     .map_err(|e| Status::internal(format!("Failed to encode request: {}", e)))?;
-        // sign_data.extend_from_slice(&request_bytes);
-        // println!("all {:?}",sign_data);
+        let mut request_bytes = Vec::new();
+        request_without_auth
+            .encode(&mut request_bytes)
+            .map_err(|e| Status::internal(format!("Failed to encode request: {}", e)))?;
+        sign_data.extend_from_slice(&request_bytes);
 
         let is_valid = public_key.verify(&sign_data, &auth.signature);
         if !is_valid {
@@ -175,11 +177,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<GetListRequest>,
     ) -> Result<Response<RecordListResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -205,11 +210,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<GetByIdRequest>,
     ) -> Result<Response<OneRecordResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -234,11 +242,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<GetAllRequest>,
     ) -> Result<Response<RecordsResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -268,11 +279,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<SetOneRequest>,
     ) -> Result<Response<SetOneResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -300,11 +314,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<SetRecordsRequest>,
     ) -> Result<Response<SetRecordsResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -329,11 +346,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<DeleteByIdRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
@@ -350,11 +370,14 @@ impl RpcPassmgr for PassmgrService {
         request: Request<DeleteAllRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
+        let mut cloned_req = req.clone();
+        cloned_req.auth = None;
+
         let user_id = self.validate_auth(
             req.auth
                 .as_ref()
                 .ok_or_else(|| Status::invalid_argument("Missing auth"))?,
-            &req,
+            &cloned_req,
         )?;
 
         let storage = self.get_user_storage(user_id)?;
