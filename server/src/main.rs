@@ -63,13 +63,6 @@ impl PassmgrService {
             return Err(Status::invalid_argument("Invalid nonce"));
         }
 
-        // Increment and store new nonce
-        let _ = auth_entry.nonce.wrapping_add(1);
-
-        self.auth_db
-            .insert(user_id.to_vec(), serialize(&auth_entry).unwrap())
-            .map_err(|e| Status::internal(format!("Failed to save nonce: {}", e)))?;
-
         let public_key = dilithium2::PublicKey::from_bytes(&auth_entry.public_key);
 
         // Verify signature start
@@ -87,6 +80,13 @@ impl PassmgrService {
         if !is_valid {
             return Err(Status::unauthenticated("Invalid signature"));
         }
+
+        // Increment and store new nonce
+        let _ = auth_entry.nonce.wrapping_add(1);
+
+        self.auth_db
+            .insert(user_id.to_vec(), serialize(&auth_entry).unwrap())
+            .map_err(|e| Status::internal(format!("Failed to save nonce: {}", e)))?;
 
         Ok(user_id)
     }
