@@ -114,7 +114,11 @@ struct ServerSession {
 }
 
 impl ServerSession {
-    fn sign_request<T>(&self, request_data: &T) -> Result<AuthSignature, PassmgrError>
+    fn sign_request<T>(
+        &self,
+        request_data: &T,
+        method_name: &str,
+    ) -> Result<AuthSignature, PassmgrError>
     where
         T: prost::Message,
     {
@@ -123,15 +127,11 @@ impl ServerSession {
             None => return Err(PassmgrError::Server("No keypair found".into())),
         };
 
-        let mut sign_data = Vec::new();
+        let mut sign_data = method_name.as_bytes().to_vec();
         sign_data.extend_from_slice(&self.nonce.to_be_bytes());
 
         // Encode request data
-        let mut request_bytes = Vec::new();
-        request_data
-            .encode(&mut request_bytes)
-            .map_err(|e| format!("Failed to encode request: {}", e))?;
-        sign_data.extend_from_slice(&request_bytes);
+        sign_data.extend_from_slice(&request_data.encode_to_vec());
 
         let signature = keypair.sign(&sign_data);
         let auth_data = AuthSignature {
@@ -604,7 +604,7 @@ async fn sync_with_server(
 ) -> Result<(), PassmgrError> {
     // 1. Create request for get_all
     let request = GetAllRequest { auth: None };
-    let auth = server.sign_request(&request)?;
+    let auth = server.sign_request(&request, "GetAll")?;
     let request_with_auth = GetAllRequest { auth: Some(auth) };
 
     // 2. Get server records - get client reference only for this operation
@@ -691,7 +691,7 @@ async fn sync_with_server(
             auth: None,
             record: Some(record),
         };
-        let auth = server.sign_request(&request)?;
+        let auth = server.sign_request(&request, "SetOne")?;
         let request_with_auth = SetOneRequest {
             auth: Some(auth),
             record: request.record,
@@ -711,7 +711,7 @@ async fn sync_with_server(
 
 async fn delete_all_on_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     let request = DeleteAllRequest { auth: None };
-    let auth = server.sign_request(&request)?;
+    let auth = server.sign_request(&request, "DeleteAll")?;
     let request_with_auth = DeleteAllRequest { auth: Some(auth) };
 
     let client = match &mut server.client {
@@ -725,7 +725,7 @@ async fn delete_all_on_server(server: &mut ServerSession) -> Result<(), PassmgrE
 
 async fn get_all_ids_server(server: &mut ServerSession) -> Result<(), PassmgrError> {
     let request = GetListRequest { auth: None };
-    let auth = server.sign_request(&request)?;
+    let auth = server.sign_request(&request, "GetList")?;
     let request_with_auth = GetListRequest { auth: Some(auth) };
 
     let client = match &mut server.client {
