@@ -15,6 +15,7 @@ tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { version = "0.12.2", features = ["transport", "codegen", "tls"] }
 
 bincode.workspace = true
+blake3.workspace = true
 crystals-dilithium.workspace = true
 dirs.workspace = true
 futures.workspace = true

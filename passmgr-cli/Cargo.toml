@@ -16,6 +16,7 @@ serde_json = "1.0"
 # rpassword = "7.0"
 
 bincode.workspace = true
+blake3.workspace = true
 dirs.workspace = true
 futures.workspace = true
 prost.workspace = true

@@ -23,6 +23,8 @@ use storage::{
 use thiserror::Error;
 use tonic::transport::Channel;
 
+pub const CHALLENGE_ZERO_BITS: usize = 3; // adjustable
+
 // Define a custom error type with thiserror
 #[derive(Debug, Error)]
 pub enum PassmgrError {
@@ -127,6 +129,8 @@ impl ServerSession {
             None => return Err(PassmgrError::Server("No keypair found".into())),
         };
 
+        let (challenge_num, challenge) = find_challenge_nonce(&self.user_id, self.nonce);
+
         let mut sign_data = method_name.as_bytes().to_vec();
         sign_data.extend_from_slice(&self.nonce.to_be_bytes());
 
@@ -138,6 +142,8 @@ impl ServerSession {
             user_id: self.user_id.to_vec(),
             nonce: self.nonce,
             signature: signature.to_vec(),
+            challenge_num,
+            challenge: challenge.to_vec(),
         };
 
         let _ = self.nonce.wrapping_add(1);
@@ -370,6 +376,23 @@ async fn interactive_mode() -> Result<(), PassmgrError> {
 }
 
 // Helper functions
+
+fn find_challenge_nonce(user_id: &[u8], nonce: u64) -> (u64, [u8; 32]) {
+    use blake3::Hasher;
+
+    for challenge_num in 0u64.. {
+        let mut hasher = Hasher::new();
+        hasher.update(&nonce.to_be_bytes());
+        hasher.update(&challenge_num.to_be_bytes());
+        hasher.update(user_id);
+        let hash = hasher.finalize();
+
+        if hash.as_bytes()[31] & ((1 << CHALLENGE_ZERO_BITS) - 1) == 0 {
+            return (challenge_num, *hash.as_bytes());
+        }
+    }
+    unreachable!("u64::MAX should be enough");
+}
 
 fn prompt(message: &str) -> Result<String, PassmgrError> {
     print!("{}", message);

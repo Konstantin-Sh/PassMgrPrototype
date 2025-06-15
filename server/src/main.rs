@@ -1,4 +1,5 @@
 use bincode::{deserialize, serialize};
+use blake3::Hasher;
 use crypto::UserId;
 use crystals_dilithium::dilithium2;
 use passmgr_rpc::rpc_passmgr::rpc_passmgr_server::{RpcPassmgr, RpcPassmgrServer};
@@ -15,6 +16,7 @@ use storage::db::Storage;
 use storage::error::StorageError;
 use tonic::{Request, Response, Status};
 
+pub const CHALLENGE_ZERO_BITS: usize = 3; // adjustable
 struct PassmgrService {
     auth_db: sled::Db,
     data_dir: PathBuf,
@@ -49,6 +51,14 @@ impl PassmgrService {
             .try_into()
             .map_err(|_| Status::invalid_argument("Invalid user_id length"))?;
 
+        let mut hasher = Hasher::new();
+        hasher.update(&auth.nonce.to_be_bytes());
+        hasher.update(&auth.challenge_num.to_be_bytes());
+        hasher.update(&auth.user_id);
+        let hash = hasher.finalize();
+        if hash.as_bytes()[31] & ((1 << CHALLENGE_ZERO_BITS) - 1) != 0 {
+            return Err(Status::permission_denied("Challenge proof failed"));
+        }
         // Retrieve AuthEntry
         let auth_entry_bytes = self
             .auth_db

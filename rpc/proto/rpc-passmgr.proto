@@ -33,6 +33,8 @@ message AuthSignature {
   bytes user_id = 1;
   uint64 nonce = 2;
   bytes signature = 3;      // Dilithium signature of [nonce || request_data]
+  uint64 challenge_num = 4;
+  bytes challenge = 5;
 }
 
 message GetNonceRequest {
