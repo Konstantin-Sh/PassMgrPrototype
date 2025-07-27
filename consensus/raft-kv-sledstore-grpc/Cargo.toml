@@ -5,8 +5,8 @@ readme = "README.md"
 
 edition = "2021"
 authors = [
-    "Konstantin Sh",
     "Sainath Singineedi <sainathsingineedi2222@gmail.com>",
+    "Konstantin Sh <sh-konstantin@proton.me>",
 ]
 categories = ["algorithms", "asynchronous", "data-structures"]
 description = "An example distributed key-value store built upon `openraft`."

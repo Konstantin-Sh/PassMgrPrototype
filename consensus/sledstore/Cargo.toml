@@ -6,6 +6,7 @@ readme = "README.md"
 edition = "2021"
 authors = [
     "drdr xp <drdr.xp@gmail.com>",
+    "Konstantin Sh <sh-konstantin@proton.me>",
 ]
 categories = ["algorithms", "asynchronous", "data-structures"]
 description = "An example in-memory storage for `openraft`."

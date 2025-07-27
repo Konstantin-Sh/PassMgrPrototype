@@ -9,6 +9,7 @@ storage = { path = "../storage" }
 passmgr-rpc = { path = "../rpc" }
 
 anyhow = "1.0"
+openraft = { version = "0.9", features = ["serde"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
