@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+import "raft-int.proto";
+
+package raft_mgr;
+// package rpc_passmgr;
+
+// Node represents a single node in the Raft cluster
+message Node {
+  // Unique identifier for the node
+  uint64 node_id = 1;
+  // RPC address for node communication
+  string rpc_addr = 2;
+}
+
+// InitRequest contains the initial set of nodes for cluster initialization
+message InitRequest {
+  // List of initial cluster nodes
+  repeated Node nodes = 1;
+}
+
+// AddLearnerRequest specifies parameters for adding a learner node
+message AddLearnerRequest {
+  // Node to be added as a learner
+  Node node = 1;
+}
+
+// ChangeMembershipRequest specifies parameters for modifying cluster membership
+message ChangeMembershipRequest {
+  // New set of voter node IDs
+  repeated uint64 members = 1;
+  // Whether to retain existing configuration
+  bool retain = 2;
+}
+
+// Response for password manager operations
+message PassmgrResponse {
+  bool success = 1;
+  string message = 2;
+  bytes data = 3;
+}
+
+// Request for password manager operations
+message PassmgrRequest {
+  string operation = 1;
+  bytes user_id = 2;
+  bytes data = 3;
+}
+
+message ClientWriteResponse {
+  // The log id of the committed log entry.
+  raft_internal.LogId log_id = 1;
+
+  // If the committed log entry is a normal one.
+  PassmgrResponse data = 2;
+
+  // If the committed log entry is a change-membership entry.
+  raft_internal.Membership membership = 3;
+}
+
+message MetricsResponse {
+  // Cluster membership config
+  raft_internal.Membership membership = 1;
+
+  // Other metrics encoded as string for simplicity
+  string other_metrics = 2;
+  
+  // Current leader information
+  optional uint64 current_leader = 3;
+  
+  // Current term
+  uint64 current_term = 4;
+  
+  // Last applied log index
+  uint64 last_applied = 5;
+}
+
+// Forward request to leader if this node is not the leader
+message ForwardRequest {
+  string method = 1;
+  bytes payload = 2;
+}
+
+message ForwardResponse {
+  bytes payload = 1;
+}
+
+// RaftMgrService provides cluster management operations
+service RaftMgrService {
+  // Init initializes a new Raft cluster with the given nodes
+  rpc Init(InitRequest) returns (google.protobuf.Empty) {}
+
+  // AddLearner adds a new learner node to the Raft cluster
+  rpc AddLearner(AddLearnerRequest) returns (ClientWriteResponse) {}
+
+  // ChangeMembership modifies the cluster membership configuration
+  rpc ChangeMembership(ChangeMembershipRequest) returns (ClientWriteResponse) {}
+
+  // Metrics retrieves cluster metrics and status information
+  rpc Metrics(google.protobuf.Empty) returns (MetricsResponse) {}
+  
+  // Forward forwards a request to the leader node
+  rpc Forward(ForwardRequest) returns (ForwardResponse) {}
+  
+  // Submit a password manager operation through Raft consensus
+  rpc Submit(PassmgrRequest) returns (ClientWriteResponse) {}
+}

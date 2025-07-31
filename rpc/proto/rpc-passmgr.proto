@@ -1,5 +1,8 @@
 syntax = "proto3";
 
+import "raft-mgr.proto";
+import "raft-int.proto";
+
 package rpc_passmgr;
 
 service RpcPassmgr {
